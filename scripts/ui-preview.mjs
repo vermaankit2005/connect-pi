@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 
 const root = fileURLToPath(new URL("../web/", import.meta.url));
-const port = Number(process.env.CONNECT_PI_PREVIEW_PORT || 4318);
+const port = Number(process.env.CONNECT_PI_PREVIEW_PORT || 4320);
 const now = Date.now();
 const agents = [
 	{ id: "preview", piSessionId: "hello", name: "Hello", cwd: "D:/Projects/demo", cwdName: "demo", connectedAt: now, thinking: "high", isStreaming: false },

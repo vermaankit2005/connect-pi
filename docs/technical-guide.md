@@ -48,7 +48,7 @@ The CI matrix uses Node.js 22.19.0 and Pi 1.5.2 on Windows and Linux.
 - `npm run smoke:package` installs the package into an isolated Pi profile and
   exercises setup, start, restart, status and stop without model calls.
   Use `CONNECT_PI_PACKAGE_SOURCE=manual` to check the manual forwarding extension.
-- `npm run preview:ui` serves fixture data at `http://127.0.0.1:4318`.
+- `npm run preview:ui` serves fixture data at `http://127.0.0.1:4320`.
   Use `npx playwright install chromium` and `npm run test:ui` to exercise the
   fixture in Chromium.
 - `CONNECT_PI_CONFIG` points tests to isolated settings.
