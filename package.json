@@ -1,0 +1,30 @@
+{
+  "name": "connect-pi",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Control your desktop pi coding agent from your phone.",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test server/*.test.js web/*.test.js",
+    "preview:ui": "node scripts/ui-preview.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
+    "setup": "node scripts/setup.mjs",
+    "passcode": "node scripts/set-passcode.mjs",
+    "wifi": "node scripts/allow-wifi.mjs",
+    "install-extension": "node scripts/install-extension.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "icons:desktop": "node scripts/make-desktop-icons.mjs",
+    "desktop": "powershell -ExecutionPolicy Bypass -File scripts/install-desktop-shortcuts.ps1",
+    "desktop:remove": "powershell -ExecutionPolicy Bypass -File scripts/install-desktop-shortcuts.ps1 -Remove",
+    "autostart": "powershell -ExecutionPolicy Bypass -File scripts/install-autostart.ps1",
+    "autostart:remove": "powershell -ExecutionPolicy Bypass -File scripts/install-autostart.ps1 -Remove"
+  },
+  "dependencies": {
+    "@simplewebauthn/server": "^13.3.3",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

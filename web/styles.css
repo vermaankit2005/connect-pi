@@ -1,0 +1,1827 @@
+@font-face { font-family: "Pi Roboto"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/roboto-400.ttf") format("truetype"); }
+@font-face { font-family: "Pi Roboto"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/roboto-500.ttf") format("truetype"); }
+@font-face { font-family: "Pi Roboto"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/roboto-600.ttf") format("truetype"); }
+@font-face { font-family: "Pi Roboto"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/roboto-700.ttf") format("truetype"); }
+
+/* connect-pi phone UI — dressed as the ChatGPT Android app, dark theme.
+ *
+ * Everything visual is a variable in :root. If a grey or the purple looks a
+ * shade off next to the real app on your phone, change it here and nowhere
+ * else. */
+
+:root {
+	/* surfaces */
+	--bg: #000000; /* the thread background is pure black */
+	--surface-1: #303030; /* composer box, code blocks */
+	--surface-2: #303030; /* top bar buttons, drawer rows */
+	--surface-3: #2f2f2f; /* sheets, pressed states, jump button */
+	--drawer-bg: #212121;
+	--hairline: #2c2c2c;
+
+	/* text */
+	--text: #f3f3f3; /* assistant text */
+	--text-strong: #ffffff;
+	--text-dim: #9b9b9b; /* action icons, timestamps */
+	--text-faint: #7d7d7d; /* placeholder */
+
+	/* accent — the purple of the user bubbles and the send button.
+	 * --user-bubble / --user-text / --user-bubble-edge are also written as
+	 * inline properties on <html> by the Bubble colour setting in app.js; the
+	 * values here are what you get before anyone picks something else. */
+	--user-bubble: #2d074b;
+	--user-bubble-edge: transparent;
+	--accent: #a456f6;
+	--accent-press: #9141e5;
+	--danger: #ff6b6b;
+	--ok: #4ade80;
+
+	/* metrics */
+	--gutter: 1rem;
+	--topbar-h: 4.5rem;
+	--radius-bubble: 1.375rem;
+
+	--safe-top: env(safe-area-inset-top, 0px);
+	--safe-bottom: env(safe-area-inset-bottom, 0px);
+
+	/* text and furniture that used to be hardcoded further down the file */
+	--on-accent: #ffffff;
+	--user-text: #ffffff;
+	--link: #7ab7ff;
+	--warn: #e3b341;
+	--icon-dim: #6f6f6f;
+	--icon-faint: #5f5f5f;
+	--chev: #5a5a5a;
+	--press: #3d3d3d;
+	--detail-bg: #131313;
+	--input-bg: #1c1c1c;
+	--text-mid: #bdbdbd;
+	--text-near: #d4d4d4;
+	--track: #4a4a4a;
+	--avatar: #16b89f;
+	--selected: #404040;
+	--control-border: #454545;
+	--thinking: #c6a0f0;
+	--grab: #5c5c5c;
+	--inline-bg: #2a2a2a;
+
+	/* Code cards keep their own dark surface in BOTH themes. A block of code on
+	 * white would need the whole syntax palette re-tuned for contrast, and every
+	 * app worth copying (ChatGPT included) leaves code dark in light mode. */
+	--code-bg: #1a1a1a;
+	--code-text: #e6e6e6;
+
+	color-scheme: dark;
+}
+
+/* ------------------------------------------------------------ light theme
+ *
+ * Reached two ways: the user picks Light in Settings (data-theme="light"), or
+ * they leave it on System and the phone is in light mode. The dark palette
+ * above is the default, so this block only has to say what differs. */
+
+:root[data-theme="light"],
+:root[data-theme="light"] body {
+	color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+	:root:not([data-theme="dark"]) {
+		color-scheme: light;
+	}
+}
+
+/* keep the two selectors in step - edit LIGHT-PALETTE in both places */
+:root[data-theme="light"] {
+	--bg: #ffffff;
+	--surface-1: #f4f4f5;
+	--surface-2: #efeff1;
+	--surface-3: #e6e6e9;
+	--drawer-bg: #fafafa;
+	--selected: #e5e5e5;
+	--control-border: #dedede;
+	--thinking: #8543bd;
+	--hairline: #e4e4e7;
+
+	--text: #1c1c1e;
+	--text-strong: #000000;
+	--text-dim: #6c6c72;
+	--text-faint: #8e8e95;
+
+	/* the purple stays, softened to a tint so black text sits on it */
+	--user-bubble: #ebe4ff;
+	--user-text: #34216b;
+	--accent: #6d28d9;
+	--accent-press: #5b21b6;
+	--danger: #dc2626;
+	--ok: #15803d;
+
+	--on-accent: #ffffff;
+	--link: #2563eb;
+	--warn: #b45309;
+	--icon-dim: #8a8a90;
+	--icon-faint: #a1a1a8;
+	--chev: #b4b4ba;
+	--press: #dcdce0;
+	--detail-bg: #f4f4f5;
+	--input-bg: #ffffff;
+	--text-mid: #45454b;
+	--text-near: #18181b;
+	--track: #d4d4d8;
+	--grab: #b4b4ba;
+	--inline-bg: #ececef;
+}
+
+@media (prefers-color-scheme: light) {
+	:root:not([data-theme="dark"]) {
+		--bg: #ffffff;
+		--surface-1: #f4f4f5;
+		--surface-2: #efeff1;
+		--surface-3: #e6e6e9;
+		--drawer-bg: #fafafa;
+	--selected: #e5e5e5;
+	--control-border: #dedede;
+	--thinking: #8543bd;
+		--hairline: #e4e4e7;
+
+		--text: #1c1c1e;
+		--text-strong: #000000;
+		--text-dim: #6c6c72;
+		--text-faint: #8e8e95;
+
+		--user-bubble: #ebe4ff;
+		--user-text: #34216b;
+		--accent: #6d28d9;
+		--accent-press: #5b21b6;
+		--danger: #dc2626;
+		--ok: #15803d;
+
+		--on-accent: #ffffff;
+		--link: #2563eb;
+		--warn: #b45309;
+		--icon-dim: #8a8a90;
+		--icon-faint: #a1a1a8;
+		--chev: #b4b4ba;
+		--press: #dcdce0;
+		--detail-bg: #f4f4f5;
+		--input-bg: #ffffff;
+		--text-mid: #45454b;
+		--text-near: #18181b;
+		--track: #d4d4d8;
+		--grab: #b4b4ba;
+		--inline-bg: #ececef;
+	}
+}
+
+* {
+	box-sizing: border-box;
+	-webkit-tap-highlight-color: transparent;
+}
+
+html {
+	/* ONE knob for the whole app.
+	 *
+	 * Every size in this file is in rem, so this single number is the zoom of
+	 * the entire UI. The 15.36px default is 96% of the original 16px scale. Settings -> Text size
+	 * overwrites this inline, and app.js restores the saved choice on load. */
+	font-size: 15.36px;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	height: 100%;
+	overscroll-behavior-y: none;
+}
+
+body {
+	background: var(--bg);
+	color: var(--text);
+	font-family: "Pi Roboto", Roboto, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+	font-size: 1rem;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea {
+	font: inherit;
+	color: inherit;
+	background: none;
+	border: 0;
+	margin: 0;
+}
+
+button {
+	cursor: pointer;
+}
+
+.hidden {
+	display: none !important;
+}
+
+.ic {
+	width: 1.5rem;
+	height: 1.5rem;
+	display: block;
+	flex: none;
+}
+.ic-16 {
+	width: 1rem;
+	height: 1rem;
+}
+.ic-18 {
+	width: 1.125rem;
+	height: 1.125rem;
+}
+.ic-20 {
+	width: 1.25rem;
+	height: 1.25rem;
+}
+.ic-28 {
+	width: 1.75rem;
+	height: 1.75rem;
+}
+
+.screen {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	background: var(--bg);
+}
+
+/* ------------------------------------------------------------- offline */
+
+/* Not the lock screen. "I cannot reach the PC" and "the PC will not let you in"
+ * are different problems with different fixes, and the app used to show the
+ * second when it meant the first. */
+
+.offline {
+	justify-content: center;
+	align-items: center;
+	padding: 1.5rem var(--gutter) calc(1.5rem + var(--safe-bottom));
+}
+
+.offline-inner {
+	width: 100%;
+	max-width: 21rem;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	text-align: center;
+}
+
+/* the broken link, with two rings breathing outwards behind it */
+.offline-art {
+	position: relative;
+	width: 5.5rem;
+	height: 5.5rem;
+	display: grid;
+	place-items: center;
+	margin-bottom: 1.75rem;
+	color: var(--accent);
+}
+.offline-art .ic {
+	width: 2.5rem;
+	height: 2.5rem;
+	position: relative;
+	z-index: 2;
+}
+.offline-art .ring {
+	position: absolute;
+	inset: 0;
+	border-radius: 50%;
+	border: 1px solid var(--accent);
+	opacity: 0;
+	animation: ripple 2.8s ease-out infinite;
+}
+.offline-art .ring.r2 {
+	animation-delay: 1.4s;
+}
+.offline-art::after {
+	content: "";
+	position: absolute;
+	inset: 0.875rem;
+	border-radius: 50%;
+	background: var(--surface-2);
+}
+@keyframes ripple {
+	0% {
+		transform: scale(0.55);
+		opacity: 0.55;
+	}
+	70% {
+		opacity: 0;
+	}
+	100% {
+		transform: scale(1);
+		opacity: 0;
+	}
+}
+
+.offline-title {
+	font-size: 1.5rem;
+	font-weight: 600;
+	color: var(--text-strong);
+	margin: 0 0 0.5rem;
+}
+
+.offline-sub {
+	margin: 0 0 1.75rem;
+	color: var(--text-dim);
+	font-size: 0.9375rem;
+	line-height: 1.5;
+}
+
+.offline-steps {
+	list-style: none;
+	margin: 0 0 1.75rem;
+	padding: 0;
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+	text-align: left;
+}
+.offline-steps li {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.75rem;
+	color: var(--text);
+	font-size: 0.9375rem;
+	line-height: 1.45;
+}
+.offline-steps .n {
+	flex: none;
+	width: 1.375rem;
+	height: 1.375rem;
+	border-radius: 50%;
+	background: var(--surface-2);
+	color: var(--text-dim);
+	font-size: 0.75rem;
+	font-weight: 600;
+	display: grid;
+	place-items: center;
+	margin-top: 0.0625rem;
+}
+.offline-steps b {
+	color: var(--text-strong);
+	font-weight: 600;
+}
+
+.offline-retry {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	min-width: 11rem;
+}
+.offline-retry.busy {
+	opacity: 0.6;
+	pointer-events: none;
+}
+.offline-retry.busy .ic {
+	animation: spin 0.9s linear infinite;
+}
+
+.offline-status {
+	min-height: 1.375rem;
+	margin-top: 0.875rem;
+	font-size: 0.8125rem;
+	color: var(--text-faint);
+}
+
+.offline-host {
+	margin-top: 0.25rem;
+	font-size: 0.75rem;
+	color: var(--icon-faint);
+	overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------- reconnecting banner */
+
+/* While a conversation is on screen, losing the socket is not worth throwing
+ * the whole thread away for. A slim line says what is happening and the app
+ * heals itself. */
+.conn-banner {
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	padding: 0.4375rem 0.75rem;
+	margin: 0 var(--gutter) 0.25rem;
+	border-radius: 0.75rem;
+	background: var(--surface-2);
+	color: var(--text-dim);
+	font-size: 0.8125rem;
+	animation: drop-in 0.2s ease-out;
+}
+.conn-pulse {
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: 50%;
+	background: var(--warn);
+	animation: pulse 1.3s ease-in-out infinite;
+}
+@keyframes drop-in {
+	from {
+		opacity: 0;
+		transform: translateY(-0.375rem);
+	}
+}
+
+/* ---------------------------------------------------------------- lock */
+
+.lock {
+	justify-content: center;
+	align-items: center;
+	padding: 1.5rem var(--gutter) calc(1.5rem + var(--safe-bottom));
+}
+
+.lock-inner {
+	width: 100%;
+	max-width: 21.25rem;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+}
+
+.lock-mark {
+	width: 4rem;
+	height: 4rem;
+	border-radius: 50%;
+	background: var(--accent);
+	color: var(--on-accent);
+	display: grid;
+	place-items: center;
+	font-size: 1.6875rem;
+	font-weight: 600;
+	letter-spacing: -0.5px;
+	margin-bottom: 1.25rem;
+}
+
+.lock-title {
+	font-size: 1.5rem;
+	font-weight: 600;
+	margin: 0 0 0.375rem;
+	color: var(--text-strong);
+}
+
+.lock-sub {
+	margin: 0 0 2rem;
+	color: var(--text-dim);
+	font-size: 0.9375rem;
+	text-align: center;
+}
+
+.finger-btn {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.875rem;
+	padding: 1.625rem 1.875rem;
+	border-radius: 1.375rem;
+	background: var(--surface-2);
+	color: var(--text-strong);
+	font-size: 1rem;
+	font-weight: 500;
+	transition: background 0.15s, transform 0.1s;
+}
+.finger-btn:active {
+	background: var(--surface-3);
+	transform: scale(0.98);
+}
+.finger-btn .ic {
+	color: var(--accent);
+	width: 2.875rem;
+	height: 2.875rem;
+}
+
+/* pin pad */
+
+.pin {
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+}
+
+.pin-dots {
+	display: flex;
+	gap: 1rem;
+	margin-bottom: 1.875rem;
+	height: 0.875rem;
+}
+.pin-dots i {
+	width: 0.8125rem;
+	height: 0.8125rem;
+	border-radius: 50%;
+	border: 1.6px solid var(--chev);
+	transition: background 0.12s, border-color 0.12s, transform 0.12s;
+}
+.pin-dots i.on {
+	background: var(--accent);
+	border-color: var(--accent);
+	transform: scale(1.08);
+}
+.pin.shake {
+	animation: shake 0.36s;
+}
+@keyframes shake {
+	0%,
+	100% {
+		transform: translateX(0);
+	}
+	20% {
+		transform: translateX(-0.5625rem);
+	}
+	40% {
+		transform: translateX(0.5rem);
+	}
+	60% {
+		transform: translateX(-0.3125rem);
+	}
+	80% {
+		transform: translateX(0.1875rem);
+	}
+}
+
+.keypad {
+	display: grid;
+	grid-template-columns: repeat(3, 4.75rem);
+	gap: 1rem 1.375rem;
+	justify-content: center;
+}
+.keypad button {
+	height: 4.5rem;
+	border-radius: 50%;
+	font-size: 1.75rem;
+	font-weight: 400;
+	color: var(--text-strong);
+	background: var(--surface-2);
+	display: grid;
+	place-items: center;
+	transition: background 0.12s, transform 0.08s;
+}
+.keypad button:active {
+	background: var(--surface-3);
+	transform: scale(0.94);
+}
+.keypad button.flat {
+	background: none;
+	color: var(--text-dim);
+}
+.keypad button.flat:active {
+	background: var(--surface-2);
+}
+.keypad button.blank {
+	visibility: hidden;
+}
+
+.lock-error {
+	min-height: 1.375rem;
+	margin-top: 1.25rem;
+	color: var(--danger);
+	font-size: 0.875rem;
+	text-align: center;
+}
+
+.link-btn {
+	margin-top: 0.5rem;
+	color: var(--text-dim);
+	font-size: 0.9375rem;
+	padding: 0.625rem 0.875rem;
+	border-radius: 0.625rem;
+}
+.link-btn:active {
+	background: var(--surface-2);
+}
+
+/* ---------------------------------------------------------------- top bar */
+
+.topbar {
+	flex: none;
+	height: calc(var(--topbar-h) + var(--safe-top));
+	padding: var(--safe-top) .9375rem 0;
+	display: flex;
+	align-items: center;
+	gap: .5rem;
+	background: var(--bg);
+}
+
+.icon-circle {
+	width: 2.875rem;
+	height: 2.875rem;
+	border: 1px solid var(--control-border);
+	border-radius: 50%;
+	background: var(--surface-2);
+	color: var(--text-strong);
+	display: grid;
+	place-items: center;
+	flex: none;
+}
+.icon-circle:active {
+	background: var(--surface-3);
+}
+
+.icon-pill {
+	display: flex;
+	align-items: center;
+	background: var(--surface-2);
+	border: 1px solid var(--control-border);
+	border-radius: 2rem;
+	height: 2.875rem;
+	padding: 0 .375rem;
+	flex: none;
+}
+.icon-pill button {
+	width: 2.5rem;
+	height: 2.75rem;
+	display: grid;
+	place-items: center;
+	color: var(--text-strong);
+	border-radius: 50%;
+}
+.icon-pill button:active {
+	background: var(--surface-3);
+}
+
+.title-chip {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.1875rem;
+	color: var(--text-dim);
+	font-size: 0.9375rem;
+	font-weight: 500;
+	height: 2.625rem;
+	border-radius: 0.75rem;
+	padding: 0 0.375rem;
+}
+.title-chip span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.title-chip:active {
+	background: var(--surface-2);
+}
+
+.topbar-plain .pick-head {
+	flex: 1;
+	min-width: 0;
+	padding-left: 0.375rem;
+}
+.pick-title {
+	font-size: 1.0625rem;
+	font-weight: 600;
+	color: var(--text-strong);
+}
+.pick-path {
+	font-size: 0.7813rem;
+	color: var(--text-dim);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	/* No direction:rtl here. It was a trick to keep the tail of a long path
+	 * visible, but it rendered a drive root backwards. app.js shortens the path
+	 * instead, which is honest about what it is doing. */
+}
+
+/* ---------------------------------------------------------------- thread */
+
+.thread {
+	flex: 1;
+	overflow-y: auto;
+	overflow-x: hidden;
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior-y: contain;
+	padding: 0.5rem var(--gutter) 0;
+}
+
+.thread-tail {
+	height: 1rem;
+}
+
+#messages {
+	display: flex;
+	flex-direction: column;
+}
+
+.msg {
+	margin-bottom: 1.625rem;
+}
+.msg:last-child {
+	margin-bottom: 0.5rem;
+}
+
+/* user bubble */
+
+.msg-user {
+	align-self: flex-end;
+	max-width: 78%;
+	background: var(--user-bubble);
+	color: var(--user-text);
+	border: 1px solid var(--user-bubble-edge);
+	border-radius: var(--radius-bubble);
+	padding: .727rem 1rem;
+	font-size: .9688rem;
+	line-height: 1.44;
+	letter-spacing: -.008em;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* assistant */
+
+.msg-ai {
+	font-size: .9688rem;
+	line-height: 1.53;
+	color: var(--text);
+	overflow-wrap: anywhere;
+}
+.msg-ai > *:first-child {
+	margin-top: 0;
+}
+.msg-ai > *:last-child {
+	margin-bottom: 0;
+}
+.msg-ai p {
+	margin: 0 0 0.875rem;
+}
+.msg-ai strong {
+	color: var(--text-strong);
+	font-weight: 700;
+}
+.msg-ai em {
+	font-style: italic;
+}
+.msg-ai a {
+	color: var(--link);
+	text-decoration: none;
+}
+.msg-ai h1,
+.msg-ai h2,
+.msg-ai h3 {
+	color: var(--text-strong);
+	font-weight: 600;
+	margin: 1.25rem 0 0.625rem;
+	line-height: 1.3;
+}
+.msg-ai h1 {
+	font-size: 1.1875rem;
+}
+.msg-ai h2 {
+	font-size: 1.0938rem;
+}
+.msg-ai h3 {
+	font-size: 1rem;
+}
+.msg-ai ul,
+.msg-ai ol {
+	margin: 0 0 0.875rem;
+	padding-left: 1.5rem;
+}
+.msg-ai li {
+	margin-bottom: 0.375rem;
+}
+.msg-ai hr {
+	border: 0;
+	border-top: 1px solid var(--hairline);
+	margin: 1.125rem 0;
+}
+.msg-ai blockquote {
+	margin: 0 0 0.875rem;
+	padding-left: 0.875rem;
+	border-left: 2px solid var(--hairline);
+	color: var(--text-dim);
+}
+.msg-ai code.inline {
+	background: var(--inline-bg);
+	border-radius: 0.3125rem;
+	padding: 2px 0.3125rem;
+	font-family: "Roboto Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+	font-size: 0.87em;
+}
+.msg-ai .err {
+	color: var(--danger);
+}
+
+/* code block */
+
+.code {
+	position: relative;
+	background: var(--code-bg);
+	border-radius: 0.875rem;
+	margin: 0 0 0.875rem;
+	overflow: hidden;
+}
+.code pre {
+	margin: 0;
+	padding: 0.875rem 1rem;
+	overflow-x: auto;
+	font-family: "Roboto Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+	/* deliberately small: this is what makes a real line of code fit the width
+	 * of a phone instead of running off the side. Measured against the app. */
+	font-size: 0.625rem;
+	line-height: 1.6;
+	color: var(--code-text);
+	tab-size: 2;
+}
+.code .code-copy {
+	position: absolute;
+	top: 0.375rem;
+	right: 0.375rem;
+	width: 2rem;
+	height: 2rem;
+	border-radius: 0.5rem;
+	display: grid;
+	place-items: center;
+	color: var(--text-dim);
+	/* opaque, and the same grey as the card: a long line scrolls under it
+	 * instead of showing through it */
+	background: var(--code-bg);
+	z-index: 1;
+}
+.code .code-copy:active {
+	background: var(--surface-3);
+}
+/* keep the first line clear of the copy button */
+.code pre code {
+	display: block;
+	padding-right: 2rem;
+}
+
+/* very light syntax colouring, tuned to look like the app's code cards */
+.tok-key {
+	color: #c792ea;
+}
+.tok-str {
+	color: #c3e88d;
+}
+.tok-com {
+	color: #6a7383;
+	font-style: italic;
+}
+.tok-num {
+	color: #f78c6c;
+}
+.tok-fn {
+	color: #82aaff;
+}
+
+/* A markdown card is a *document* shown as-is, not code. Same card, different
+ * tints: the syntax marks fade back and the words come forward, so a .md file
+ * reads like the file rather than like a program. */
+.code-md pre {
+	color: #dcdcdc;
+	/* a shade larger than a code card, and airier: prose wants the room */
+	font-size: 0.71875rem;
+	line-height: 1.75;
+}
+.md-mark {
+	color: #616b7a;
+}
+.md-head {
+	color: #e0a458;
+	font-weight: 600;
+}
+.md-strong {
+	color: var(--text-strong);
+	font-weight: 700;
+}
+.md-em {
+	color: #d7d7d7;
+	font-style: italic;
+}
+.md-del {
+	color: #8a8a8a;
+	text-decoration: line-through;
+}
+.md-code {
+	color: #c3e88d;
+}
+.md-link {
+	color: #82aaff;
+}
+.md-quote {
+	color: #9b9b9b;
+	font-style: italic;
+}
+
+/* action row under an assistant message */
+
+.actions {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	margin-top: 0.625rem;
+	/* pull the row out so the first icon lines up under the text, not inset */
+	margin-left: -0.8125rem;
+	color: var(--text-dim);
+}
+.actions button {
+	width: 2.125rem;
+	height: 2.125rem;
+	border-radius: 0.625rem;
+	display: grid;
+	place-items: center;
+	color: var(--text-dim);
+}
+.actions button:active {
+	background: var(--surface-2);
+}
+.actions button.done {
+	color: var(--ok);
+}
+
+/* collapsible detail rows: thinking, tools, commands */
+
+.detail {
+	margin: 0 0 0.75rem;
+	border-radius: 0.75rem;
+	background: transparent;
+}
+.detail.open {
+	background: var(--detail-bg);
+}
+.detail-head {
+	display: flex;
+	align-items: center;
+	gap: 0.5625rem;
+	width: 100%;
+	padding: 0.4375rem 0.625rem;
+	border-radius: 0.75rem;
+	color: var(--text-dim);
+	font-size: 0.9063rem;
+	text-align: left;
+}
+.detail-head:active {
+	background: var(--surface-2);
+}
+.detail-head .ic {
+	color: var(--icon-dim);
+}
+.detail-head .label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.detail-head .label b {
+	color: var(--text-mid);
+	font-weight: 500;
+}
+.detail-head .caret {
+	transition: transform 0.16s;
+	color: var(--icon-faint);
+}
+.detail.open .detail-head .caret {
+	transform: rotate(180deg);
+}
+.detail-body {
+	padding: 2px 0.75rem 0.75rem;
+	font-size: 0.7813rem;
+	line-height: 1.55;
+	color: var(--text-mid);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-family: "Roboto Mono", ui-monospace, Menlo, Consolas, monospace;
+	max-height: 26.25rem;
+	overflow: auto;
+}
+/* pi's own thinking reads as prose, not as a log */
+.detail-body.prose {
+	font-family: "Pi Roboto", Roboto, system-ui, sans-serif;
+	font-size: 0.9063rem;
+	line-height: 1.6;
+	white-space: normal;
+}
+.detail-body.prose p {
+	margin: 0 0 0.625rem;
+}
+.detail-body.prose p:last-child {
+	margin-bottom: 0;
+}
+.detail-body.prose strong {
+	color: var(--text-near);
+	font-weight: 600;
+}
+
+.detail-body .sub {
+	color: var(--text-faint);
+	font-family: "Pi Roboto", Roboto, system-ui, sans-serif;
+	margin-top: 0.625rem;
+	margin-bottom: 0.1875rem;
+	font-size: 0.7813rem;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+.detail .spin {
+	width: 0.8125rem;
+	height: 0.8125rem;
+	border-radius: 50%;
+	border: 2px solid var(--track);
+	border-top-color: var(--accent);
+	animation: spin 0.75s linear infinite;
+	flex: none;
+}
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+.detail .dot-ok {
+	color: var(--ok);
+}
+.detail .dot-err {
+	color: var(--danger);
+}
+
+/* notices and system lines */
+
+.notice {
+	margin: 0 0 1rem;
+	text-align: center;
+	font-size: 0.8438rem;
+	color: var(--text-faint);
+}
+.notice.warn {
+	color: var(--warn);
+}
+.notice.error {
+	color: var(--danger);
+}
+
+/* the pulsing blob while pi is working */
+
+.thinking-dot {
+	width: 0.9375rem;
+	height: 0.9375rem;
+	border-radius: 50%;
+	background: var(--text);
+	margin-bottom: 1.375rem;
+	animation: pulse 1.15s ease-in-out infinite;
+}
+@keyframes pulse {
+	0%,
+	100% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 0.35;
+		transform: scale(0.72);
+	}
+}
+
+/* empty states */
+
+.empty {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	padding: 2.5rem 1.5rem 5.625rem;
+	min-height: 55vh;
+}
+/* a soft medallion above the words, so the screen has somewhere to look */
+.empty .medallion {
+	width: 4.5rem;
+	height: 4.5rem;
+	border-radius: 50%;
+	background: var(--surface-2);
+	color: var(--accent);
+	display: grid;
+	place-items: center;
+	margin-bottom: 1.25rem;
+}
+.empty .medallion .ic {
+	width: 2rem;
+	height: 2rem;
+}
+.empty .medallion .thinking-dot {
+	margin: 0;
+	width: 1.125rem;
+	height: 1.125rem;
+	background: var(--accent);
+}
+.empty .btn-primary {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+}
+.empty .btn-ghost {
+	margin-top: 0.625rem;
+}
+.empty h2 {
+	font-size: 1.375rem;
+	font-weight: 600;
+	color: var(--text-strong);
+	margin: 0 0 0.375rem;
+}
+.empty p {
+	color: var(--text-dim);
+	font-size: 0.9375rem;
+	line-height: 1.5;
+	margin: 0 0 1.5rem;
+	max-width: 17rem;
+}
+
+/* ---------------------------------------------------------------- jump */
+
+.jump {
+	position: absolute;
+	left: 50%;
+	transform: translateX(-50%);
+	bottom: calc(6.125rem + var(--safe-bottom));
+	width: 2.75rem;
+	height: 2.75rem;
+	border-radius: 50%;
+	background: var(--surface-3);
+	color: var(--text-strong);
+	display: grid;
+	place-items: center;
+	z-index: 3;
+}
+
+/* ---------------------------------------------------------------- composer */
+
+.composer {
+	flex: none;
+	padding: .375rem .8125rem calc(.8rem + var(--safe-bottom));
+	background: var(--bg);
+}
+
+.composer-box {
+	background: var(--surface-1);
+	border: 1px solid var(--control-border);
+	border-radius: 1.75rem;
+	padding: .36rem .4375rem;
+	display: flex;
+	align-items: center;
+	gap: .625rem;
+	min-height: 3.125rem;
+	cursor: text;
+}
+
+.composer-box textarea {
+	display: block;
+	flex: 1;
+	min-width: 0;
+	width: 0;
+	resize: none;
+	outline: none;
+	background: none;
+	padding: 0;
+	font-size: 1rem;
+	line-height: 1.5;
+	min-height: 1.5rem;
+	max-height: 9rem;
+	overflow-y: auto;
+	color: var(--text);
+}
+.composer-box textarea::placeholder {
+	color: var(--text-faint);
+}
+
+.composer-row {
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+	padding-top: 2px;
+}
+.composer-row .spacer {
+	flex: 1;
+}
+
+.round-ghost {
+	width: 2rem;
+	height: 2.25rem;
+	flex: none;
+	border-radius: 50%;
+	display: grid;
+	place-items: center;
+	color: var(--text);
+}
+.round-ghost:active {
+	background: var(--surface-3);
+}
+
+.round-send {
+	width: 2.125rem;
+	height: 2.125rem;
+	flex: none;
+	border-radius: 50%;
+	background: var(--accent);
+	color: var(--on-accent);
+	display: grid;
+	place-items: center;
+	transition: background .15s, opacity .15s, transform .1s;
+}
+.round-send:active {
+	transform: scale(0.93);
+	background: var(--accent-press);
+}
+.round-send.idle {
+	opacity: 0.4;
+}
+.round-send.stopping {
+	background: var(--surface-3);
+	color: var(--text-strong);
+	opacity: 1;
+}
+
+/* ---------------------------------------------------------------- drawer */
+
+.scrim {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.55);
+	z-index: 20;
+	animation: fade 0.18s;
+}
+@keyframes fade {
+	from {
+		opacity: 0;
+	}
+}
+
+.drawer {
+	position: fixed;
+	top: 0;
+	left: 0;
+	bottom: 0;
+	width: min(80%, 24rem);
+	background: var(--drawer-bg);
+	z-index: 21;
+	display: flex;
+	flex-direction: column;
+	padding: calc(.875rem + var(--safe-top)) 0 calc(.75rem + var(--safe-bottom));
+	animation: slide-in .2s ease-out;
+}
+@keyframes slide-in {
+	from {
+		transform: translateX(-100%);
+	}
+}
+
+.drawer-search {
+	display: flex;
+	align-items: center;
+	gap: 0.5625rem;
+	background: var(--surface-2);
+	border-radius: 1.375rem;
+	padding: 0 0.875rem;
+	height: 2.75rem;
+	color: var(--text-dim);
+	margin-bottom: 0.625rem;
+}
+.drawer-search input {
+	flex: 1;
+	min-width: 0;
+	outline: none;
+	font-size: 0.9688rem;
+	color: var(--text);
+}
+.drawer-search input::placeholder {
+	color: var(--text-faint);
+}
+
+.drawer-row {
+	display: flex;
+	align-items: center;
+	gap: .9375rem;
+	width: 100%;
+	min-height: 3.125rem;
+	padding: .625rem 2.0625rem;
+	color: var(--text);
+	font-size: 1rem;
+	text-align: left;
+}
+.drawer-row:active {
+	background: var(--surface-2);
+}
+
+.drawer-label {
+	display: flex;
+	align-items: center;
+	gap: 0.4375rem;
+	color: var(--text-faint);
+	font-size: 0.7813rem;
+	font-weight: 500;
+	padding: 1rem 0.75rem 0.375rem;
+}
+/* The first label sits right under the New session row, where the extra
+   breathing space above just looks like a gap. */
+.drawer-list > .drawer-label:first-child {
+	padding-top: 0.375rem;
+}
+.drawer-label .count {
+	min-width: 1.125rem;
+	padding: 0 0.3125rem;
+	border-radius: 0.5625rem;
+	background: var(--surface-2);
+	color: var(--text-dim);
+	font-size: 0.6875rem;
+	line-height: 1.125rem;
+	text-align: center;
+}
+
+.drawer-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior-y: contain;
+	-webkit-overflow-scrolling: touch;
+}
+
+.drawer-list {
+	overflow: visible;
+}
+
+.sess {
+	display: flex;
+	align-items: center;
+	gap: .625rem;
+	width: 100%;
+	min-height: 3.125rem;
+	padding: .75rem 2.0625rem;
+	border-radius: 0;
+	text-align: left;
+	color: var(--text);
+}
+.sess:active {
+	background: var(--surface-2);
+}
+.sess.active {
+	background: var(--selected);
+}
+.sess .who {
+	flex: 1;
+	min-width: 0;
+}
+.sess .name {
+	flex: 1;
+	min-width: 0;
+	font-size: 1rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.sess .where {
+	font-size: 0.75rem;
+	color: var(--text-faint);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.sess .live {
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: 50%;
+	background: var(--ok);
+	flex: none;
+}
+.sess .live.idle {
+	background: var(--track);
+}
+
+/* Past sessions. No dot at all — the green dot has to keep meaning "alive on
+   the PC right now", or the whole point of splitting the list is lost. */
+.sess.past {
+	padding-left: 0.75rem;
+}
+.sess.past .name {
+	color: var(--text-dim);
+}
+.sess.past .where {
+	display: flex;
+	align-items: center;
+	gap: 0.3125rem;
+}
+.sess.past .where .folder {
+	color: var(--text-dim);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 9rem;
+}
+.sess.past .where .dot {
+	opacity: 0.5;
+}
+.sess.locked {
+	opacity: 0.45;
+}
+
+/* Only shown once a conversation is big enough that reopening it costs real
+   tokens. A tag on everything would be noise. */
+.sess .tag {
+	flex: none;
+	padding: 0.125rem 0.4375rem;
+	border-radius: 0.4375rem;
+	background: var(--surface-2);
+	color: var(--text-faint);
+	font-size: 0.6875rem;
+	white-space: nowrap;
+}
+.sess .tag.heavy {
+	color: var(--warn);
+}
+
+.drawer-empty {
+	color: var(--text-faint);
+	font-size: 0.875rem;
+	padding: 0.875rem 0.75rem;
+	line-height: 1.5;
+}
+
+.drawer-foot {
+	display: flex;
+	align-items: center;
+	gap: 0.6875rem;
+	padding: 0.625rem 0.75rem;
+	border-radius: 0.75rem;
+	border-top: 1px solid var(--hairline);
+	margin-top: 0.375rem;
+	color: var(--text);
+	font-size: 0.9375rem;
+	width: 100%;
+	text-align: left;
+}
+.drawer-foot:active {
+	background: var(--surface-2);
+}
+.avatar {
+	width: 1.875rem;
+	height: 1.875rem;
+	border-radius: 50%;
+	background: var(--accent);
+	color: var(--on-accent);
+	display: grid;
+	place-items: center;
+	font-size: 0.875rem;
+	font-weight: 600;
+	flex: none;
+}
+
+/* ---------------------------------------------------------------- picker */
+
+.pick-list {
+	flex: 1;
+	overflow-y: auto;
+	padding: 0.25rem 0.625rem 0.5rem;
+}
+
+.pick-row {
+	display: flex;
+	align-items: center;
+	gap: 0.8125rem;
+	width: 100%;
+	padding: 0.8125rem 0.75rem;
+	border-radius: 0.875rem;
+	text-align: left;
+	color: var(--text);
+}
+.pick-row:active {
+	background: var(--surface-2);
+}
+.pick-row .ic:first-child {
+	color: var(--text-dim);
+}
+.pick-row .who {
+	flex: 1;
+	min-width: 0;
+}
+.pick-row .name {
+	font-size: 1rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pick-row .where {
+	font-size: 0.7813rem;
+	color: var(--text-faint);
+}
+.pick-row .chev {
+	color: var(--chev);
+}
+.pick-row.up .name {
+	color: var(--text-dim);
+}
+.pick-empty {
+	color: var(--text-faint);
+	font-size: 0.9063rem;
+	padding: 1.375rem 0.875rem;
+	text-align: center;
+}
+
+.pick-actions .btn-primary {
+	flex: 1;
+}
+
+.pick-actions {
+	flex: none;
+	display: flex;
+	gap: 0.625rem;
+	padding: 0.625rem var(--gutter) calc(0.875rem + var(--safe-bottom));
+	border-top: 1px solid var(--hairline);
+}
+
+.btn-primary {
+	/* NOT flex:1 by default. It used to be, and in the empty state - a column
+	 * flex box - that made the button grow down the page into a tall purple
+	 * slab. Only the picker's side-by-side action bar wants it to stretch. */
+	flex: none;
+	height: 3.125rem;
+	padding: 0 1.5rem;
+	border-radius: 1.5625rem;
+	background: var(--accent);
+	color: var(--on-accent);
+	font-size: 1rem;
+	font-weight: 500;
+	transition: opacity 0.15s, transform 0.1s;
+}
+.btn-primary:active {
+	transform: scale(0.98);
+	background: var(--accent-press);
+}
+.btn-primary:disabled {
+	opacity: 0.35;
+}
+
+.btn-ghost {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	height: 3.125rem;
+	padding: 0 1.125rem;
+	border-radius: 1.5625rem;
+	background: var(--surface-2);
+	color: var(--text);
+	font-size: 0.9375rem;
+}
+.btn-ghost:active {
+	background: var(--surface-3);
+}
+
+/* ---------------------------------------------------------------- sheets */
+
+.sheet-wrap {
+	position: fixed;
+	inset: 0;
+	z-index: 30;
+	display: flex;
+	flex-direction: column;
+	justify-content: flex-end;
+}
+.sheet-scrim {
+	position: absolute;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.5);
+	animation: fade 0.18s;
+}
+.sheet {
+	position: relative;
+	background: var(--surface-3);
+	border-radius: 1.5rem 1.5rem 0 0;
+	padding: 0.5rem 0.5rem calc(0.75rem + var(--safe-bottom));
+	animation: rise 0.2s ease-out;
+	max-height: 82vh;
+	overflow-y: auto;
+}
+@keyframes rise {
+	from {
+		transform: translateY(100%);
+	}
+}
+.sheet .grab {
+	width: 2.125rem;
+	height: 0.25rem;
+	border-radius: 2px;
+	background: var(--grab);
+	margin: 0.25rem auto 0.625rem;
+}
+.sheet .sheet-title {
+	padding: 0.25rem 1rem 0.625rem;
+	color: var(--text-strong);
+	font-size: 1.0625rem;
+	font-weight: 600;
+}
+.sheet .sheet-note {
+	padding: 0 1rem 0.75rem;
+	color: var(--text-mid);
+	font-size: 0.875rem;
+	line-height: 1.5;
+}
+.sheet-item {
+	display: flex;
+	align-items: center;
+	gap: 0.9375rem;
+	width: 100%;
+	padding: 0.9375rem 1rem;
+	border-radius: 0.875rem;
+	color: var(--text);
+	font-size: 1rem;
+	text-align: left;
+}
+.sheet-item:active {
+	background: var(--press);
+}
+.sheet-item.danger {
+	color: var(--danger);
+}
+.sheet-item .ic {
+	color: inherit;
+}
+/* a colour sample stands in for the icon on the bubble-colour rows */
+.sheet-item .swatch {
+	width: 1.5rem;
+	height: 1.5rem;
+	flex: none;
+	border-radius: 50%;
+	border: 1px solid var(--hairline);
+}
+/* the one in use gets a ring in the app's accent, so the row reads at a glance */
+.sheet-item .swatch.on {
+	box-shadow: 0 0 0 2px var(--surface-3), 0 0 0 4px var(--accent);
+}
+.sheet-item .ic.trail {
+	margin-left: auto;
+	color: var(--accent);
+}
+.sheet-item small {
+	display: block;
+	color: var(--text-dim);
+	font-size: 0.7813rem;
+	margin-top: 1px;
+}
+
+/* ---------------------------------------------------------------- dialog */
+
+.dialog-wrap {
+	position: fixed;
+	inset: 0;
+	z-index: 40;
+	background: rgba(0, 0, 0, 0.6);
+	display: grid;
+	place-items: center;
+	padding: 1.5rem;
+}
+.dialog {
+	width: 100%;
+	max-width: 20.625rem;
+	background: var(--surface-3);
+	border-radius: 1.5rem;
+	padding: 1.375rem 1.25rem 0.875rem;
+	animation: pop 0.16s ease-out;
+}
+@keyframes pop {
+	from {
+		transform: scale(0.94);
+		opacity: 0;
+	}
+}
+.dialog h3 {
+	margin: 0 0 0.5rem;
+	font-size: 1.1875rem;
+	font-weight: 600;
+	color: var(--text-strong);
+}
+.dialog p {
+	margin: 0 0 1rem;
+	font-size: 0.9063rem;
+	color: var(--text-mid);
+	line-height: 1.5;
+}
+.dialog input {
+	width: 100%;
+	background: var(--input-bg);
+	border-radius: 0.75rem;
+	padding: 0.8125rem 0.875rem;
+	font-size: 1rem;
+	outline: none;
+	margin-bottom: 0.875rem;
+}
+.dialog .row {
+	display: flex;
+	justify-content: flex-end;
+	gap: 0.375rem;
+}
+.dialog .row button {
+	padding: 0.6875rem 1.125rem;
+	border-radius: 0.75rem;
+	font-size: 0.9375rem;
+	font-weight: 500;
+	color: var(--accent);
+}
+.dialog .row button:active {
+	background: var(--press);
+}
+.dialog .row button.plain {
+	color: var(--text-dim);
+}
+.dialog .err {
+	color: var(--danger);
+	font-size: 0.8438rem;
+	margin: -0.5rem 0 0.75rem;
+	min-height: 1.125rem;
+}
+
+/* ---------------------------------------------------------------- toast */
+
+.toast {
+	position: fixed;
+	left: 50%;
+	transform: translateX(-50%);
+	bottom: calc(6rem + var(--safe-bottom));
+	background: var(--surface-3);
+	color: var(--text-strong);
+	padding: 0.75rem 1.125rem;
+	border-radius: 0.875rem;
+	font-size: 0.9063rem;
+	max-width: calc(100% - 2.5rem);
+	text-align: center;
+	z-index: 50;
+	box-shadow: 0 0.25rem 1.125rem rgba(0, 0, 0, 0.6);
+	animation: rise-small 0.18s ease-out;
+	pointer-events: none; /* it floats over the composer — never eat a tap */
+}
+@keyframes rise-small {
+	from {
+		transform: translate(-50%, 0.625rem);
+		opacity: 0;
+	}
+}
+
+/* Reference mobile layout: 46px header controls, 50px composer, 80% drawer. */
+#chat.has-conversation .title-chip { visibility: hidden; }
+#btnPlus .ic { width: 1.75rem; height: 1.75rem; }
+#btnMic.listening { color: var(--accent); background: var(--surface-3); }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 0 1.5rem 1rem 2.0625rem; flex: none; }
+.drawer-brand { font-size: 1.5rem; font-weight: 600; letter-spacing: -.04em; }
+.drawer-search { margin: 0 1.5rem .75rem; flex: none; }
+.drawer-nav { margin: 0 0 1rem; padding-bottom: 1rem; position: relative; flex: none; }
+.drawer-nav::after { content: ""; position: absolute; bottom: 0; left: 2.0625rem; right: 2.0625rem; height: 1px; background: var(--control-border); }
+.nav-chevron { margin-left: auto; color: var(--text-dim); }
+.nav-active { background: var(--surface-3); }
+.drawer-list { min-height: 0; }
+.drawer-bottom { display: flex; align-items: center; justify-content: space-between; padding: .625rem 1.5rem 0 2.0625rem; gap: 1rem; flex: none; }
+.drawer-chat { display: flex; align-items: center; justify-content: center; gap: .75rem; padding: .875rem 1.5rem; border-radius: 2rem; background: var(--accent); color: var(--on-accent); }
+.drawer-account { width: 3.125rem; height: 3.125rem; border: 1px solid var(--control-border); background: var(--surface-2); border-radius: 50%; display: grid; place-items: center; flex: none; }
+.drawer-account .avatar { width: 2.125rem; height: 2.125rem; background: var(--avatar); color: var(--on-accent); font-size: .8125rem; font-weight: 400; }
+.drawer-see-all { display: block; padding: .75rem 2.0625rem; text-align: left; color: var(--text-faint); width: 100%; }
+.project-row { display: flex; width: 100%; align-items: center; gap: .75rem; padding: .75rem 1.5rem .75rem 2.0625rem; text-align: left; }
+.project-row .who { min-width: 0; flex: 1; }
+.project-row .name, .project-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-row small { font-size: .6875rem; color: var(--text-dim); margin-top: .125rem; }
+.project-count { color: var(--text-dim); font-size: .75rem; }
+.project-title { padding: .5rem 2.0625rem 0; font-size: 1.375rem; font-weight: 600; overflow-wrap: anywhere; }
+.project-path { padding: .25rem 2.0625rem .75rem; font-size: .6875rem; color: var(--text-dim); overflow-wrap: anywhere; }
+.project-back { color: var(--text-dim); min-height: 2rem; }
+.project-create { color: var(--text-dim); }
+.project-row:hover, .drawer-row:hover, .sess:hover { background: var(--surface-3); }
+.sess.active:hover { background: var(--selected); }
+.actions-wrap { position: fixed; inset: 0; z-index: 24; }
+.actions-scrim { position: absolute; inset: 0; width: 100%; height: 100%; background: transparent; }
+.actions-menu { position: absolute; left: .8125rem; bottom: calc(.75rem + var(--safe-bottom)); width: min(16.75rem, calc(100% - 1.625rem)); padding: .625rem 1rem; border: 1px solid var(--control-border); border-radius: 2.125rem; background: var(--surface-1); box-shadow: 0 .5rem 2rem #0003; animation: drop-in .15s ease-out; }
+.action-option { display: flex; align-items: center; gap: .8125rem; width: 100%; padding: .5rem 0; min-height: 3.9375rem; text-align: left; font-size: 1rem; }
+.action-icon { display: grid; place-items: center; width: 2.875rem; height: 2.875rem; border-radius: 50%; background: var(--selected); flex: none; }
+.action-icon .ic { width: 1.625rem; height: 1.625rem; }
+.action-option.selected { color: var(--thinking); }
+.action-check { margin-left: auto; }
+.empty .medallion { display: none; }
+.empty h2 { font-weight: 500; font-size: 1.5rem; letter-spacing: -.025em; }
+@media (max-height: 600px) {
+  .drawer-nav { padding-bottom: .5rem; margin-bottom: .5rem; }
+  .drawer-row { min-height: 2.5rem; }
+  .drawer-head { padding-bottom: .5rem; }
+}
+@media (min-width: 800px) {
+  .thread { padding-left: max(1rem, calc((100vw - 48rem) / 2)); padding-right: max(1rem, calc((100vw - 48rem) / 2)); }
+  .composer { padding-left: max(1rem, calc((100vw - 48rem) / 2)); padding-right: max(1rem, calc((100vw - 48rem) / 2)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+/* Keep the editable field visually part of the pill, including on focus. */
+.composer-box textarea:focus-visible { outline: none; }
+.composer-box:has(textarea:focus-visible) { border-color: var(--text-faint); }
+.round-send.idle { opacity: 1; }
+
+.msg-user .keep-word { white-space: nowrap; }
+
+#chat .topbar { align-items: flex-start; padding-top: calc(var(--safe-top) + .6rem); }
+.msg-user { margin-bottom: 1.4375rem; }
+.drawer-row { gap: .8125rem; }
