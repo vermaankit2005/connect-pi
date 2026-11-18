@@ -4,7 +4,7 @@
 // picker for starting new ones. Everything the PC says arrives on one
 // websocket; everything else is a small REST call.
 
-import { Bridge, api, enrolPasskey, loginWithPasskey, passkeySupported, setLockHandler, token } from "/api.js";
+import { Bridge, api, enrolPasskey, loginWithPasskey, passkeySupported, setLockHandler } from "/api.js";
 import { projectGroups } from "/projects.js";
 import { esc, markdown } from "/markdown.js";
 
@@ -33,7 +33,11 @@ const state = {
 	nodes: new Map(), // key -> rendered element
 	open: new Set(), // which detail rows the user has expanded
 	started: new Map(), // key -> when the assistant message first appeared
-	localEchoes: [], // messages shown before the PC echoed them back
+	drafts: new Map(),
+	outbox: new Map(),
+	attachment: null,
+	waiting: false,
+	stopping: false,
 	pending: null, // a session we asked for but have not seen connect yet
 	pick: { path: null, name: "", parent: null, folders: [], roots: [] },
 	lastTouch: 0,
@@ -41,6 +45,8 @@ const state = {
 };
 
 let bridge = null;
+let loggedIn = false;
+const LOCAL_LOCK = "connect-pi.locked";
 
 // ---------------------------------------------------------------- bits
 
@@ -290,13 +296,23 @@ async function copy(text) {
 // Overlays register with the back stack so the phone's back gesture closes the
 // top one instead of leaving the app.
 const backStack = [];
-function pushBack(close) {
-	backStack.push(close);
-	history.pushState({ depth: backStack.length }, "");
+const overlayIds = ["dialogWrap", "sheetWrap", "actionsWrap", "drawer"];
+function syncInert() {
+	const top = overlayIds.find((id) => !$(id).classList.contains("hidden"));
+	for (const id of overlayIds) $(id).inert = Boolean(top && id !== top);
+	for (const id of ["offline", "lock", "chat", "picker", "transcript"]) $(id).inert = Boolean(top);
 }
-window.addEventListener("popstate", () => {
-	if (backStack.length) backStack.pop()?.();
-});
+function pushBack(close) {
+	const returnTo = document.activeElement;
+	backStack.push(() => {
+		close();
+		syncInert();
+		if (returnTo?.getClientRects().length && !returnTo.closest("[inert]")) returnTo.focus();
+	});
+	history.pushState({ depth: backStack.length }, "");
+	syncInert();
+}
+window.addEventListener("popstate", () => { backStack.pop()?.(); });
 function closeTop() {
 	if (backStack.length) history.back();
 }
@@ -307,6 +323,7 @@ function showSheet(items, { title, note } = {}) {
 	const sheet = $("sheet");
 	sheet.innerHTML = "";
 	sheet.appendChild(el("div", "grab"));
+	sheet.setAttribute("aria-label", title || "Options");
 	if (title) sheet.appendChild(el("div", "sheet-title", title));
 	if (note) sheet.appendChild(el("div", "sheet-note", note));
 
@@ -326,25 +343,36 @@ function showSheet(items, { title, note } = {}) {
 
 	$("sheetWrap").classList.remove("hidden");
 	pushBack(() => $("sheetWrap").classList.add("hidden"));
+	(sheet.querySelector("button") || sheet).focus();
 }
 $("sheetScrim").onclick = closeTop;
 
-function showDialog({ title, body, placeholder, value = "", confirm = "OK", onConfirm }) {
+function showDialog({ title, body, detail, detailNote, placeholder, value = "", confirm = "OK", onConfirm }) {
 	const d = $("dialog");
 	d.innerHTML = "";
+	d.setAttribute("aria-label", title);
 	d.appendChild(el("h3", null, title));
-	if (body) d.appendChild(el("p", null, body));
+	if (body) d.appendChild(el("p", detail !== undefined ? "diff-status" : null, body));
+	if (detail) {
+		const pre = el("pre", "diff", detail);
+		pre.tabIndex = 0;
+		pre.setAttribute("aria-label", "Git diff");
+		d.appendChild(pre);
+	}
+	if (detailNote) d.appendChild(el("p", null, detailNote));
 
 	let input = null;
 	if (placeholder != null) {
 		input = el("input");
 		input.placeholder = placeholder;
+		input.setAttribute("aria-label", placeholder);
 		input.value = value;
 		input.autocapitalize = "off";
 		input.autocomplete = "off";
 		d.appendChild(input);
 	}
 	const err = el("div", "err");
+	err.setAttribute("role", "status");
 	d.appendChild(err);
 
 	const row = el("div", "row");
@@ -361,12 +389,13 @@ function showDialog({ title, body, placeholder, value = "", confirm = "OK", onCo
 			ok.disabled = false;
 		}
 	};
-	row.append(cancel, ok);
+	if (onConfirm) row.append(cancel, ok);
+	else { ok.textContent = "Close"; row.append(ok); }
 	d.appendChild(row);
 
 	$("dialogWrap").classList.remove("hidden");
 	pushBack(() => $("dialogWrap").classList.add("hidden"));
-	if (input) setTimeout(() => input.focus(), 90);
+	(input || (onConfirm ? cancel : ok)).focus();
 	if (input)
 		input.onkeydown = (e) => {
 			if (e.key === "Enter") ok.click();
@@ -377,7 +406,7 @@ function showDialog({ title, body, placeholder, value = "", confirm = "OK", onCo
 
 function show(name) {
 	state.screen = name;
-	for (const id of ["offline", "lock", "chat", "picker"]) $(id).classList.toggle("hidden", id !== name);
+	for (const id of ["offline", "lock", "chat", "picker", "transcript"]) $(id).classList.toggle("hidden", id !== name);
 	// the composer can only be measured once it is actually on screen
 	if (name === "chat") requestAnimationFrame(autoGrow);
 }
@@ -442,16 +471,8 @@ async function retryConnection({ auto = false } = {}) {
 	}
 	btn.classList.remove("busy");
 	stopOfflineRetries();
-	// the PC is answering again — pick up wherever we left off
-	if (token.get()) {
-		try {
-			await api.me();
-			return enterApp();
-		} catch (e) {
-			if (isUnreachable(e)) return showOffline();
-		}
-	}
-	return showLock();
+	return checkSession();
+
 }
 
 $("offlineRetry").onclick = () => retryConnection();
@@ -478,8 +499,11 @@ function buildKeypad() {
 		const b = el("button");
 		if (k === "") {
 			b.className = "blank";
+			b.tabIndex = -1;
+			b.setAttribute("aria-hidden", "true");
 		} else if (k === "back") {
 			b.className = "flat";
+			b.setAttribute("aria-label", "Delete digit");
 			b.innerHTML = icon("backspace");
 			b.onclick = () => {
 				buzz();
@@ -504,8 +528,8 @@ function buildKeypad() {
 async function submitPin() {
 	const entered = pin;
 	try {
-		const { token: t } = await api.loginPasscode(entered);
-		token.set(t);
+		await api.loginPasscode(entered);
+		localStorage.removeItem(LOCAL_LOCK);
 		pin = "";
 		paintPin();
 		await enterApp();
@@ -524,8 +548,8 @@ async function submitPin() {
 async function tryFingerprint() {
 	$("lockError").textContent = "";
 	try {
-		const t = await loginWithPasskey();
-		token.set(t);
+		await loginWithPasskey();
+		localStorage.removeItem(LOCAL_LOCK);
 		await enterApp();
 	} catch (e) {
 		// a cancelled prompt is not an error worth shouting about
@@ -541,7 +565,7 @@ function showPasscodeFallback() {
 	}
 	$("pinArea").classList.remove("hidden");
 	$("usePasscode").classList.add("hidden");
-	$("fingerBtn").classList.add("hidden");
+	$("fingerBtn").classList.toggle("hidden", !state.auth.hasPasskey);
 }
 
 async function showLock() {
@@ -574,31 +598,63 @@ async function showLock() {
 	if (!canFinger && !state.auth.hasPasscode) {
 		$("lockError").textContent = "No passcode is set on the PC. Run  npm run passcode  there.";
 	}
-	if (canFinger) setTimeout(tryFingerprint, 250);
+	(canFinger ? $("fingerBtn") : $("keypad").querySelector("button"))?.focus();
 }
 
 $("fingerBtn").onclick = tryFingerprint;
 $("usePasscode").onclick = showPasscodeFallback;
 
-function lockNow() {
-	token.clear();
+async function lockNow(revoke = true) {
+	loggedIn = false;
 	bridge?.close();
 	bridge = null;
 	state.agentId = null;
+	state.info = {};
+	state.pending = null;
+	state.agents = [];
+	state.history = [];
+	state.project = null;
+	state.drawerMode = "projects";
+	state.pick = { roots: [], folders: [], path: null };
 	state.events.clear();
 	state.nodes.clear();
-	showLock();
-}
-setLockHandler(() => {
-	if (state.screen !== "lock") {
-		toast("Locked — you were away for a while");
-		lockNow();
+	state.open.clear();
+	state.started.clear();
+	state.drafts.clear();
+	state.outbox.clear();
+	state.attachment = null;
+	state.waiting = state.streaming = state.stopping = false;
+	savedView = null;
+	input.value = "";
+	$("drawerSearch").value = "";
+	$("pickPath").textContent = "";
+	$("transcriptTitle").textContent = "";
+	$("topTitle").textContent = "Pi";
+	$("topStatus").textContent = "";
+	$("toast").textContent = "";
+	$("toast").classList.add("hidden");
+	for (const id of ["messages", "pendingMessages", "transcriptMessages", "drawerList", "pickList", "sheet", "dialog", "actionsMenu"]) $(id).replaceChildren();
+	recognition?.abort();
+	for (const id of [...overlayIds, "scrim"]) $(id).classList.add("hidden");
+	$("btnMenu").setAttribute("aria-expanded", "false");
+	$("btnPlus").setAttribute("aria-expanded", "false");
+	backStack.length = 0;
+	history.replaceState({ depth: 0 }, "");
+	syncInert();
+	show("lock");
+	if (revoke) {
+		localStorage.setItem(LOCAL_LOCK, "1");
+		try { await api.lock(); localStorage.removeItem(LOCAL_LOCK); }
+		catch { return showOffline(); }
 	}
-});
+	return showLock();
+}
+setLockHandler(() => { if (loggedIn) void lockNow(false); });
 
 // ---------------------------------------------------------------- entering
 
 async function enterApp() {
+	loggedIn = true;
 	stopOfflineRetries();
 	show("chat");
 	renderThread();
@@ -609,7 +665,7 @@ async function enterApp() {
 		state.auth = await api.authState();
 	} catch {}
 	if (state.auth.canUsePasskey && !state.auth.hasPasskey && passkeySupported()) {
-		setTimeout(offerPasskey, 900);
+		setTimeout(() => { if (loggedIn && state.screen === "chat" && !overlayIds.some((id) => !$(id).classList.contains("hidden"))) offerPasskey(); }, 900);
 	}
 }
 
@@ -618,12 +674,12 @@ function offerPasskey() {
 		[
 			{
 				icon: "finger",
-				label: "Turn on fingerprint unlock",
+				label: "Add a passkey",
 				onClick: async () => {
 					try {
-						await enrolPasskey("phone");
+						await enrolPasskey(navigator.userAgentData?.platform || (navigator.platform || "Phone"));
 						state.auth.hasPasskey = true;
-						toast("Fingerprint unlock is on");
+						toast("Passkey added");
 					} catch (e) {
 						if (e.name !== "NotAllowedError") toast(e.message, 4000);
 					}
@@ -632,8 +688,8 @@ function offerPasskey() {
 			{ icon: "x", label: "Not now" },
 		],
 		{
-			title: "Use your fingerprint?",
-			note: "You are on a secure address, so this phone can unlock with its fingerprint instead of the passcode.",
+			title: "Add a passkey?",
+			note: "Use your phone’s fingerprint, face, or screen lock to unlock Connect Pi.",
 		},
 	);
 }
@@ -659,12 +715,15 @@ function connectBridge() {
 		onOpen: () => {
 			setConnBanner(false);
 			if (state.agentId) bridge.send({ t: "attach", agentId: state.agentId });
+			paintHeader();
+			setSendButton();
 		},
 		// Losing the socket mid-conversation is normal — the PC sleeps, the phone
 		// changes network. Say so in a slim line and heal; do not throw the thread
 		// away and drop the user on a full-screen error.
 		onClose: () => {
 			setConnBanner(true);
+			paintHeader();
 			setSendButton();
 		},
 		// Turned away at the door: confirm with the server, which drops us to the
@@ -688,8 +747,7 @@ function handleMessage(msg) {
 			attach(id);
 			return;
 		}
-		if (!state.agentId && state.agents.length) attach(state.agents[0].id);
-		else if (state.agentId && !state.agents.some((a) => a.id === state.agentId)) renderThread();
+		if (!state.pending && !state.agentId && state.agents.length) attach(state.agents[0].id);
 		else syncFromAgent();
 		return;
 	}
@@ -703,69 +761,118 @@ function handleMessage(msg) {
 
 	if (msg.t === "snapshot") {
 		if (msg.agentId !== state.agentId) return;
+		if (!msg.online) { paintHeader(); return; }
+		const stick = !state.events.size || nearBottom();
 		state.events.clear();
-		state.nodes.clear();
-		state.started.clear();
-		state.localEchoes = [];
 		state.info = msg.info || {};
 		state.streaming = Boolean(msg.state?.isStreaming);
+		state.waiting = Boolean(msg.state?.waiting);
 		state.thinking = msg.state?.thinking || "";
-		for (const e of msg.events || []) state.events.set(keyOf(e), e);
+		for (const event of msg.events || []) {
+			state.events.set(keyOf(event), event);
+			if (event.promptId) state.outbox.delete(event.promptId);
+		}
 		renderThread();
-		scrollToEnd(true);
+		syncFromAgent();
+		renderOutbox();
+		for (const entry of state.outbox.values()) {
+			if (entry.agentId === state.agentId && ["sending", "queued"].includes(entry.status)) {
+				bridge.send({ t: "receipt_status", agentId: state.agentId, id: entry.id });
+			}
+		}
+		if (stick) scrollToEnd(true);
 		return;
 	}
 
-	if (msg.t === "event" && msg.agentId === state.agentId) return upsert(msg.e);
-
+	if (msg.t === "receipt") {
+		const entry = state.outbox.get(msg.id);
+		if (!entry || entry.agentId !== msg.agentId) return;
+		Object.assign(entry, { status: msg.status, message: msg.message });
+		renderOutbox();
+		return;
+	}
+	if (msg.t === "event" && msg.agentId === state.agentId) {
+		if (msg.e.promptId) state.outbox.delete(msg.e.promptId);
+		if (msg.e.k === "run_stopped") {
+			state.stopping = false;
+			toast(msg.e.text || "Pi stopped.");
+			setSendButton();
+			return;
+		}
+		upsert(msg.e);
+		renderOutbox();
+		return;
+	}
 	if (msg.t === "state" && msg.agentId === state.agentId) {
 		state.streaming = Boolean(msg.state?.isStreaming);
+		state.waiting = Boolean(msg.state?.waiting);
+		if (!state.streaming) state.stopping = false;
 		state.thinking = msg.state?.thinking || state.thinking;
 		if (msg.state?.name) state.info.name = msg.state.name;
+		paintHeader();
 		setSendButton();
 		renderTypingDot();
 		return;
 	}
-
-	if (msg.t === "cleared" && msg.agentId === state.agentId) {
-		state.events.clear();
-		state.nodes.clear();
-		renderThread();
-		return;
-	}
-
 	if (msg.t === "agent_gone" && msg.agentId === state.agentId) {
-		state.streaming = false;
+		state.streaming = state.waiting = state.stopping = false;
+		paintHeader();
 		setSendButton();
-		upsert({ k: "notice", id: `gone-${Date.now()}`, level: "warn", text: "This pi session has closed." });
 		return;
 	}
 
 	if (msg.t === "error") toast(msg.message || "Something went wrong");
 }
 
+function saveDraft() {
+	state.drafts.set(state.agentId || "", { text: input.value, image: state.attachment });
+}
+function restoreDraft() {
+	const draft = state.drafts.get(state.agentId || "");
+	input.value = draft?.text || "";
+	state.attachment = draft?.image || null;
+	autoGrow();
+	setSendButton();
+}
+
 function attach(agentId) {
+	saveDraft();
 	state.agentId = agentId;
+	state.info = {};
+	state.streaming = state.waiting = state.stopping = false;
 	state.events.clear();
 	state.nodes.clear();
 	state.started.clear();
+	state.open.clear();
+	restoreDraft();
 	renderThread();
+	renderOutbox();
 	bridge?.send({ t: "attach", agentId });
 	syncFromAgent();
 }
 
-function syncFromAgent() {
-	const a = state.agents.find((x) => x.id === state.agentId);
-	if (a) {
-		state.info = { ...state.info, cwd: a.cwd, cwdName: a.cwdName, name: a.name };
-		state.streaming = a.isStreaming;
-		state.thinking = a.thinking || state.thinking;
+function paintHeader() {
+	const agent = state.agents.find((item) => item.id === state.agentId);
+	$("topTitle").textContent = agent?.name || state.info.name || state.pending?.name || "Pi";
+	let status = "";
+	if (state.agentId) {
+		const work = !bridge?.live || !agent ? "Disconnected" : state.waiting ? "Waiting for approval on PC" : state.stopping ? "Stopping…" : state.streaming ? "Working" : "Idle";
+		status = [agent?.cwdName || state.info.cwdName, work].filter(Boolean).join(" · ");
 	}
-	$("chat").classList.toggle("has-conversation", Boolean(state.events.size || a));
-	$("topTitle").textContent = a ? a.name || a.cwdName : state.pending ? state.pending.name : "pi";
+	if ($("topStatus").textContent !== status) $("topStatus").textContent = status;
+}
+
+function syncFromAgent() {
+	const agent = state.agents.find((item) => item.id === state.agentId);
+	if (agent) {
+		state.info = { ...state.info, cwd: agent.cwd, cwdName: agent.cwdName, name: agent.name };
+		state.streaming = agent.isStreaming;
+		state.waiting = agent.waiting;
+		state.thinking = agent.thinking || state.thinking;
+	}
+	paintHeader();
 	setSendButton();
 	renderTypingDot();
-	renderDrawer();
 }
 
 // ---------------------------------------------------------------- events
@@ -775,17 +882,6 @@ const keyOf = (e) => `${e.k}:${e.id != null ? e.id : `n${state.events.size}`}`;
 function upsert(e) {
 	const key = keyOf(e);
 
-	// Drop the placeholder we showed for a message the PC has now echoed back.
-	if (e.k === "user") {
-		const text = textOfBlocks(e.blocks);
-		const hit = state.localEchoes.findIndex((x) => x.text === text.trim());
-		if (hit >= 0) {
-			const [echo] = state.localEchoes.splice(hit, 1);
-			state.events.delete(echo.key);
-			state.nodes.get(echo.key)?.remove();
-			state.nodes.delete(echo.key);
-		}
-	}
 
 	const stick = nearBottom();
 	state.events.set(key, e);
@@ -830,10 +926,12 @@ function detailRow(key, { iconName, label, sub, status, body, prose }) {
 					: icon(iconName, "ic ic-18");
 	head.innerHTML =
 		`${mark}<span class="label"><b>${esc(label)}</b>${sub ? ` ${esc(sub)}` : ""}</span>` + icon("caret", "ic ic-16 caret");
+	head.setAttribute("aria-expanded", String(open));
 	head.onclick = () => {
 		const nowOpen = !wrap.classList.contains("open");
 		wrap.classList.toggle("open", nowOpen);
 		bodyEl.classList.toggle("hidden", !nowOpen);
+		head.setAttribute("aria-expanded", String(nowOpen));
 		if (nowOpen) state.open.add(key);
 		else state.open.delete(key);
 	};
@@ -847,17 +945,18 @@ function detailRow(key, { iconName, label, sub, status, body, prose }) {
 }
 
 function renderEvent(key, e) {
-	if (e.k === "done") return null;
+	if (["done", "run_stopped"].includes(e.k)) return null;
 
 	if (e.k === "user") {
 		const n = el("div", "msg msg-user");
-		const text = textOfBlocks(e.blocks) || "(sent)";
+		const text = textOfBlocks(e.blocks) || (e.blocks?.some((b) => b.type === "image") ? "" : "(sent)");
 		// Native Android text keeps short hyphenated words ("filled-in")
 		// together; browser line breaking otherwise splits them at the dash.
 		for (const part of text.split(/(\S{1,20}-\S{1,20})/g)) {
 			if (/^\S+-\S+$/.test(part) && part.length <= 30) n.append(el("span", "keep-word", part));
 			else n.append(document.createTextNode(part));
 		}
+		if (e.blocks?.some((b) => b.type === "image")) n.append(el("div", "attachment-label", "Image attached"));
 		return n;
 	}
 
@@ -870,7 +969,11 @@ function renderEvent(key, e) {
 		if (e.args && Object.keys(e.args).length) {
 			parts.push('<div class="sub">Input</div>' + esc(pretty(e.args)));
 		}
-		if (e.result) parts.push('<div class="sub">Result</div>' + esc(e.result));
+		if (e.result) {
+			const result = esc(e.result);
+			parts.push('<div class="sub">Result</div>' + (e.result.length > 1200
+				? `<details class="tool-output"><summary>Show output (${e.result.length.toLocaleString()} characters)</summary><pre>${result}</pre></details>` : result));
+		}
 		if (!parts.length) parts.push(esc(e.summary || ""));
 		return detailRow(key, {
 			iconName: "terminal",
@@ -1122,80 +1225,85 @@ function setPlaceholder() {
 }
 
 function setSendButton() {
-	const btn = $("btnSend");
-	const busy = state.streaming;
-	btn.classList.toggle("stopping", busy);
-	btn.classList.toggle("idle", !busy && !input.value.trim());
-	const voice = !busy && !input.value.trim() && (window.SpeechRecognition || window.webkitSpeechRecognition);
-	btn.setAttribute("aria-label", busy ? "Stop" : voice ? "Start dictation" : "Send");
-	btn.innerHTML = icon(busy ? "stop" : voice ? "wave" : "up");
+	const available = Boolean(bridge?.live && state.agents.some((agent) => agent.id === state.agentId));
+	$("btnSend").disabled = !available || (!input.value.trim() && !state.attachment);
+	$("btnStop").classList.toggle("hidden", !state.streaming);
+	$("btnStop").disabled = !available || state.stopping;
+	$("deliveryMode").classList.toggle("hidden", !state.streaming || (!input.value.trim() && !state.attachment));
+	$("composeMeta").classList.toggle("hidden", $("deliveryMode").classList.contains("hidden") && !state.attachment);
+	const chip = $("attachmentChip");
+	chip.classList.toggle("hidden", !state.attachment);
+	chip.textContent = state.attachment ? `${state.attachment.name} · Remove` : "";
+	paintHeader();
 }
 
 window.addEventListener("resize", autoGrow);
-
-input.addEventListener("input", () => {
-	autoGrow();
-	setSendButton();
-	touch();
-});
-
-// Enter always makes a new line — sending is the button's job. On a phone the
-// keyboard's return key is hinted as "enter" to match. Desktop keeps a
-// Ctrl/Cmd+Enter shortcut so you are not forced onto the mouse.
+input.addEventListener("input", () => { autoGrow(); setSendButton(); touch(); });
 input.addEventListener("keydown", (e) => {
 	if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.isComposing) {
 		e.preventDefault();
-		onSendOrStop();
+		if (!$("btnSend").disabled) sendPrompt();
 	}
 });
 
-function onSendOrStop() {
-	if (state.streaming && !input.value.trim()) return stopRun();
-	sendPrompt();
-}
+$("btnStop").onclick = () => {
+	if (!bridge?.send({ t: "stop", agentId: state.agentId })) return toast("Pi is disconnected.");
+	state.stopping = true;
+	setSendButton();
+};
+$("attachmentChip").onclick = () => { state.attachment = null; setSendButton(); };
 
-function stopRun() {
-	if (!state.agentId) return;
-	buzz(20);
-	bridge?.send({ t: "stop", agentId: state.agentId });
-	toast("Telling pi to stand down");
+function renderOutbox() {
+	const container = $("pendingMessages");
+	container.replaceChildren();
+	for (const entry of state.outbox.values()) {
+		if (entry.agentId !== state.agentId) continue;
+		const row = el("div", "msg msg-user", entry.text || entry.image?.name || "Message");
+		const label = entry.message || ({ sending: "Sending…", queued: "Queued…", accepted: "Accepted by Pi", failed: "Could not send", unknown: "Delivery could not be confirmed" })[entry.status];
+		row.append(el("div", "message-delivery", label));
+		if (entry.status === "unknown") {
+			const dismiss = el("button", "delivery-action", "Dismiss");
+			dismiss.onclick = () => { state.outbox.delete(entry.id); renderOutbox(); };
+			row.append(dismiss);
+		}
+		if (entry.status === "failed") {
+			const edit = el("button", "delivery-action", "Restore to draft");
+			edit.onclick = () => {
+				input.value = [entry.text, input.value].filter(Boolean).join("\n\n");
+				state.attachment ||= entry.image || null;
+				state.outbox.delete(entry.id);
+				autoGrow();
+				setSendButton();
+				renderOutbox();
+				input.focus();
+			};
+			row.append(edit);
+		}
+		container.append(row);
+	}
 }
 
 function sendPrompt() {
 	const text = input.value.trim();
-	if (!text) return;
-	if (!state.agentId) {
-		toast("Start a session first");
-		return openPicker();
-	}
-	if (!bridge?.live) return toast("Not connected to your PC yet");
-
-	bridge.send({ t: "prompt", agentId: state.agentId, text, mode: "auto" });
-
-	// Show it straight away; the PC echoes the real message back a moment later
-	// and that replaces this one.
-	const key = `user:local-${Date.now()}`;
-	state.localEchoes.push({ key, text });
-	state.events.set(key, { k: "user", id: `local-${Date.now()}`, blocks: [{ type: "text", text }] });
-	if (!state.nodes.size) renderThread();
-	else {
-		const node = renderEvent(key, state.events.get(key));
-		$("messages").appendChild(node);
-		state.nodes.set(key, node);
-	}
-
+	if (!state.agentId || (!text && !state.attachment) || !bridge?.live) return;
+	if (text.length > 110_000) return toast("Shorten the message before sending.");
+	if (state.outbox.size >= 32) return toast("Wait for Pi to finish accepting the pending messages.");
+	const id = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+	const image = state.attachment || undefined;
+	const entry = { id, agentId: state.agentId, text, image, status: "sending" };
+	const mode = $("delivery").value;
+	if (!bridge.send({ t: "prompt", agentId: state.agentId, id, text, image, mode })) return toast("Could not send. Your draft is still here.");
+	state.outbox.set(id, entry);
 	input.value = "";
+	state.attachment = null;
+	saveDraft();
+	renderOutbox();
 	autoGrow();
-	setPlaceholder();
 	setSendButton();
 	scrollToEnd();
 	touch();
 }
-
-$("btnSend").onclick = () => {
-	if (!state.streaming && !input.value.trim() && (window.SpeechRecognition || window.webkitSpeechRecognition)) return $("btnMic").click();
-	onSendOrStop();
-};
+$("btnSend").onclick = sendPrompt;
 
 function openActions() {
 	const menu = $("actionsMenu");
@@ -1203,7 +1311,7 @@ function openActions() {
 	const harder = ["high", "xhigh", "max"].includes(state.thinking);
 	const items = [
 		{ icon: "folder", label: "New chat in a folder", action: openPicker },
-		{ icon: "copy", label: "Files", action: attachTextFile },
+		{ icon: "copy", label: "Attach text or screenshot", action: attachTextFile },
 		{ icon: "pc", label: "Open on my PC", action: openOnPc },
 		{ icon: "brain", label: "Think harder", selected: harder, action: () => {
 			if (!state.agentId) return toast("Open a chat to change its thinking level");
@@ -1230,13 +1338,22 @@ function openActions() {
 function attachTextFile() {
 	const picker = document.createElement("input");
 	picker.type = "file";
-	picker.accept = ".txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.css,.html,.csv,.yaml,.yml,.xml,.log,.sql";
+	picker.accept = ".txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.css,.html,.csv,.yaml,.yml,.xml,.log,.sql,image/png,image/jpeg,image/webp";
+	const agentId = state.agentId;
 	picker.onchange = async () => {
 		const file = picker.files?.[0];
-		if (!file) return;
+		if (!file || agentId !== state.agentId) return;
+		if (["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+			try {
+				const image = await resizeScreenshot(file);
+				if (loggedIn && agentId === state.agentId) { state.attachment = image; setSendButton(); }
+			} catch (error) { toast(error.message); }
+			return;
+		}
 		if (file.size > 100000) return toast("Choose a text file smaller than 100 KB");
 		try {
 			const text = await file.text();
+			if (!loggedIn || agentId !== state.agentId) return;
 			if (text.includes("\0")) return toast("Choose a text or code file");
 			input.value += `${input.value ? "\n\n" : ""}File: ${file.name}\n\n${text}`;
 			autoGrow();
@@ -1247,16 +1364,38 @@ function attachTextFile() {
 	picker.click();
 }
 
+async function resizeScreenshot(file) {
+	if (file.size > 8 * 1024 * 1024) throw new Error("Choose a screenshot smaller than 8 MB.");
+	const bitmap = await createImageBitmap(file);
+	try {
+		const canvas = document.createElement("canvas");
+		const scale = Math.min(1, 1600 / Math.max(bitmap.height, bitmap.width));
+		canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+		canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+		const drawing = canvas.getContext("2d", { alpha: false });
+		drawing.fillStyle = "#fff";
+		drawing.fillRect(0, 0, canvas.width, canvas.height);
+		drawing.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+		let data = canvas.toDataURL("image/jpeg", 0.82).split(",")[1];
+		if (data.length > 480_000) data = canvas.toDataURL("image/jpeg", 0.60).split(",")[1];
+		if (data.length > 480_000) throw new Error("That screenshot is too large. Crop it and try again.");
+		return { name: file.name, data, mimeType: "image/jpeg" };
+	} finally { bitmap.close(); }
+}
+
 $("btnPlus").onclick = openActions;
 $("actionsScrim").onclick = closeTop;
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition;
 if (SpeechRecognition) {
 	const mic = $("btnMic");
 	mic.classList.remove("hidden");
-	const recognition = new SpeechRecognition();
+	recognition = new SpeechRecognition();
+	let dictationAgent;
 	recognition.lang = navigator.language;
 	recognition.onresult = (event) => {
+		if (!loggedIn || dictationAgent !== state.agentId) return;
 		input.value += `${input.value ? " " : ""}${event.results[0][0].transcript}`;
 		autoGrow();
 		setSendButton();
@@ -1266,6 +1405,7 @@ if (SpeechRecognition) {
 	mic.onclick = () => {
 		if (mic.classList.contains("listening")) return recognition.stop();
 		try {
+			dictationAgent = state.agentId;
 			recognition.start();
 			mic.classList.add("listening");
 			mic.setAttribute("aria-label", "Stop dictation");
@@ -1280,7 +1420,6 @@ function openDrawer() {
 	$("drawer").classList.remove("hidden");
 	$("scrim").classList.remove("hidden");
 	$("btnMenu").setAttribute("aria-expanded", "true");
-	$("drawerSearchToggle").focus();
 	// the socket pushes history on every connect and disconnect, but a fresh
 	// read here covers sessions that ended while this phone was asleep
 	refreshHistory();
@@ -1288,8 +1427,8 @@ function openDrawer() {
 		$("drawer").classList.add("hidden");
 		$("scrim").classList.add("hidden");
 		$("btnMenu").setAttribute("aria-expanded", "false");
-		$("btnMenu").focus();
 	});
+	$("drawerSearchToggle").focus();
 }
 
 async function refreshHistory() {
@@ -1317,7 +1456,6 @@ function renderDrawer() {
 	const matches = (chat, group) => !q || `${chat.session.name || ""} ${chat.session.title || ""} ${group.name} ${group.path}`.toLowerCase().includes(q);
 
 	if (state.drawerMode === "projects" && !project) {
-		list.append(el("div", "drawer-label", "Projects"));
 		for (const group of groups) {
 			if (!group.chats.some((chat) => matches(chat, group))) continue;
 			const row = el("button", "project-row");
@@ -1326,10 +1464,7 @@ function renderDrawer() {
 			list.append(row);
 		}
 		if (!list.querySelector("button")) list.append(el("div", "drawer-empty", q ? "No projects found." : "Your chat folders will appear here."));
-		const create = el("button", "drawer-row project-create");
-		create.innerHTML = `${icon("plus")}<span>New project</span>`;
-		create.onclick = () => { closeTop(); setTimeout(openPicker, 80); };
-		list.append(create);
+
 		return;
 	}
 
@@ -1355,7 +1490,7 @@ function renderDrawer() {
 		const s = chat.session;
 		const live = chat.kind === "live";
 		const active = live && s.id === state.agentId;
-		const row = el("button", `sess${active ? " active" : ""}${!live && !s.canResume ? " locked" : ""}`);
+		const row = el("button", `sess${active ? " active" : ""}`);
 		row.setAttribute("aria-current", active ? "page" : "false");
 		row.title = `${s.cwd} · ${live ? s.isStreaming ? "Working now" : "Open and waiting" : ago(s.updatedAt)}`;
 		row.append(el("span", "name", s.title || s.name || s.cwdName || "Untitled chat"));
@@ -1371,7 +1506,7 @@ function renderDrawer() {
 		};
 		list.append(row);
 	}
-	if (!chats.length) list.append(el("div", "drawer-empty", q ? "No matching chats." : state.drawerMode === "running" ? "Nothing is running. No tokens are being used." : "Your conversations will appear here."));
+	if (!chats.length) list.append(el("div", "drawer-empty", q ? "No matching chats." : state.drawerMode === "running" ? "No shared sessions are connected." : "Your conversations will appear here."));
 	if (limited && chats.length > 5) {
 		const more = el("button", "drawer-see-all", "See all…");
 		more.onclick = () => { state.drawerMode = "all"; renderDrawer(); };
@@ -1389,37 +1524,67 @@ $("drawerSearchToggle").onclick = () => {
 $("drawerProjects").onclick = () => { state.project = null; state.drawerMode = "projects"; renderDrawer(); };
 $("drawerLibrary").onclick = () => { state.project = null; state.drawerMode = "all"; renderDrawer(); };
 $("drawerRunning").onclick = () => { state.project = null; state.drawerMode = "running"; renderDrawer(); };
-$("drawerCompose").onclick = $("drawerBrowse").onclick = () => { closeTop(); setTimeout(openPicker, 80); };
-$("drawerCustomize").onclick = () => { closeTop(); setTimeout(openSettings, 80); };
 
-// Tapping an old conversation should never silently spend money, so it opens a
-// sheet that says what each choice costs you before anything starts.
-function openPastSession(s) {
-	if (!s.canResume) {
-		showSheet([], {
-			title: s.title || s.cwdName,
-			note: `${s.cwd} — outside the folders the phone is allowed to use, so pi cannot be started here.`,
-		});
-		return;
+let savedView = null;
+
+function openTranscript(session) {
+	closeTop();
+	setTimeout(() => {
+		if (!loggedIn) return;
+		savedView = { session, before: null, busy: false, query: "" };
+		$("transcriptTitle").textContent = session.title || session.cwdName;
+		$("transcriptQuery").value = "";
+		show("transcript");
+		pushBack(() => { savedView = null; show("chat"); });
+		$("transcriptBack").focus();
+		void loadTranscript(true);
+	}, 70);
+}
+
+async function loadTranscript(reset) {
+	const view = savedView;
+	if (!view || view.busy) return;
+	view.busy = true;
+	const messages = $("transcriptMessages");
+	const status = $("transcriptStatus");
+	const more = $("transcriptMore");
+	if (reset) {
+		view.query = $("transcriptQuery").value.trim().slice(0, 160);
+		view.before = null;
+		messages.replaceChildren();
 	}
+	status.textContent = "Loading…";
+	more.classList.add("hidden");
+	try {
+		const { events, before } = await api.transcript(view.session.id, view.before, view.query);
+		if (savedView !== view) return;
+		for (const event of [...events].reverse()) {
+			const node = renderEvent(`transcript:${view.session.id}:${event.k}:${event.id}`, event);
+			if (node) messages.prepend(node);
+		}
+		view.before = before;
+		status.textContent = messages.firstChild ? "" : view.query ? "No matching messages." : "This conversation has no saved messages.";
+		more.classList.toggle("hidden", before == null);
+	} catch (error) {
+		if (savedView === view) status.textContent = error.message;
+	} finally { view.busy = false; }
+}
 
-	showSheet(
-		[
-			{
-				icon: "refresh",
-				label: "Continue this session",
-				sub: `pi remembers all ${turnsLabel(s)}${weightLabel(s) ? ` — ${weightLabel(s)}, so it costs more` : ""}`,
-				onClick: () => launch({ label: s.cwdName, resumeId: s.id }),
-			},
-			{
-				icon: "compose",
-				label: "Start fresh in this folder",
-				sub: "Same folder, empty conversation",
-				onClick: () => launch({ label: s.cwdName, folder: s.cwd }),
-			},
-		],
-		{ title: s.title || s.cwdName, note: `${s.cwdName} · last used ${ago(s.updatedAt)}` },
-	);
+$("transcriptBack").onclick = closeTop;
+$("transcriptMore").onclick = () => loadTranscript(false);
+$("transcriptSearch").onsubmit = (event) => { event.preventDefault(); void loadTranscript(true); };
+
+function openPastSession(session) {
+	showSheet([
+		{ icon: "text", label: "View conversation", sub: "Read and search saved messages", onClick: () => openTranscript(session) },
+		{
+			icon: "refresh", label: "Continue this session",
+			sub: `Resume with ${turnsLabel(session)}${weightLabel(session) ? " of context" : ""}`,
+			onClick: () => launch({ label: session.cwdName, resumeId: session.id }),
+		},
+		{ icon: "compose", label: "Start fresh in this folder", onClick: () => launch({ label: session.cwdName, folder: session.cwd }) },
+		{ icon: "pc", label: "Open on my PC", onClick: () => openOnPc({ sessionId: session.id }) },
+	], { title: session.title || session.cwdName, note: `${session.cwdName} · last used ${ago(session.updatedAt)}` });
 }
 
 $("drawerNew").onclick = () => {
@@ -1440,23 +1605,35 @@ function currentFolder() {
 	return a?.cwd || state.info.cwd || "";
 }
 
-async function openOnPc() {
-	const folder = currentFolder();
-	if (!folder) return toast("No session to open");
+async function openOnPc(selection = { agentId: state.agentId }) {
+	if (!selection.agentId && !selection.sessionId) return toast("Choose a session first.");
 	try {
-		await api.openInWarp(folder);
-		await copy("pi --resume");
-		toast("Warp tab opened. Type  pi --resume  — it is on your clipboard.", 4200);
-	} catch (e) {
-		toast(e.message, 4000);
-	}
+		const { exact, live, alreadyOnPc } = await api.openInWarp(selection);
+		if (alreadyOnPc) return toast("This Pi session is already open on your PC.");
+		if (!exact) return toast("Warp opened. The Pi start command is on your PC clipboard.", 4400);
+		toast(live ? "Warp opened. Close the phone session before pasting the resume command." : "Warp opened. Paste the exact resume command on your PC.", 5500);
+	} catch (error) { toast(error.message, 4400); }
+}
+
+async function openChanges() {
+	if (!state.agentId) return toast("Choose a session first.");
+	try {
+		const { status, diff, truncated } = await api.changes(state.agentId);
+		showDialog({
+			title: "Changed files",
+			body: status || "Your working tree is clean.",
+			detail: diff,
+			detailNote: truncated ? "Preview is truncated. Open the repository on your PC for the full diff." : "",
+		});
+	} catch (error) { toast(error.message, 4400); }
 }
 
 $("btnTitle").onclick = $("btnMore").onclick = () => {
 	const a = state.agents.find((x) => x.id === state.agentId);
 	showSheet(
 		[
-			{ icon: "pc", label: "Open on my PC", sub: "Warp tab in this folder", onClick: openOnPc },
+			a ? { icon: "pc", label: "Open on my PC", sub: "Warp and the session command", onClick: () => openOnPc() } : null,
+			a ? { icon: "newfolder", label: "Changed files", sub: "View Git status and diff", onClick: openChanges } : null,
 			{
 				icon: "copy",
 				label: "Copy folder path",
@@ -1495,11 +1672,17 @@ $("btnTitle").onclick = $("btnMore").onclick = () => {
 								body: `pi will stop working in ${a.cwdName}. Anything it has already written to disk stays.`,
 								confirm: "Close",
 								onConfirm: async () => {
-									await api.stopSession(a.id);
-									state.agentId = null;
-									state.events.clear();
-									renderThread();
-									toast("Session closed");
+									const result = await api.stopSession(a.id);
+									if (!result.stopping) throw new Error("Pi could not close this session.");
+									for (let i = 0; i < 20; i += 1) {
+										await new Promise((done) => setTimeout(done, 250));
+										const { status } = await api.sessionStatus(a.id);
+										if (["stopped", "exited", "unknown"].includes(status)) {
+											toast("Session closed");
+											return;
+										}
+									}
+									throw new Error("Pi is still closing. Check the connection status.");
 								},
 							}),
 					}
@@ -1556,6 +1739,27 @@ function openBubble() {
 	);
 }
 
+async function manageDevices() {
+	try {
+		const { passkeys, sessions } = await api.devices();
+		const row = (kind, label, item) => ({
+			icon: kind === "passkey" ? "finger" : "lock", label: `${label} · ${item.label || "Phone"}`,
+			sub: `Added ${new Date(item.createdAt).toLocaleDateString()}`,
+			onClick: () => showDialog({
+				title: kind === "passkey" ? "Remove this passkey?" : "Revoke this login?",
+				body: kind === "passkey" ? "Active logins that used this passkey will also be signed out." : "This device will need to unlock again.",
+				confirm: "Remove",
+				onConfirm: async () => { await api.removeDevice(kind, item.id); toast("Access removed"); },
+			}),
+		});
+		showSheet([
+			...passkeys.map((item) => row("passkey", "Passkey", item)),
+			...sessions.map((item) => row("session", "Login", item)),
+			{ icon: "x", label: "Close" },
+		], { title: "Devices and passkeys", note: passkeys.length || sessions.length ? "Choose an entry to remove its access." : "No passkeys or other logins to manage." });
+	} catch (error) { toast(error.message); }
+}
+
 function openSettings() {
 	const secure = state.auth.canUsePasskey && passkeySupported();
 	showSheet(
@@ -1563,12 +1767,12 @@ function openSettings() {
 			secure
 				? {
 						icon: "finger",
-						label: state.auth.hasPasskey ? "Add another fingerprint" : "Turn on fingerprint unlock",
+						label: state.auth.hasPasskey ? "Add another passkey" : "Add a passkey",
 						onClick: async () => {
 							try {
-								await enrolPasskey("phone");
+								await enrolPasskey(navigator.userAgentData?.platform || (navigator.platform || "Phone"));
 								state.auth.hasPasskey = true;
-								toast("Fingerprint unlock is on");
+								toast("Passkey added");
 							} catch (e) {
 								if (e.name !== "NotAllowedError") toast(e.message, 4000);
 							}
@@ -1576,14 +1780,14 @@ function openSettings() {
 					}
 				: {
 						icon: "finger",
-						label: "Fingerprint unlock",
+						label: "Passkeys",
 						sub: "Needs the Tailscale https address",
 						onClick: () =>
 							showDialog({
 								title: "Not on this address",
-								body: "Android only offers a fingerprint on an https address with a real name. Reach this app on your Tailscale address (tailscale serve --bg 4317) and the option turns on by itself.",
+								body: "Open the Tailscale HTTPS address shown by /phone url on your PC to use passkeys.",
 								confirm: "Got it",
-								onConfirm: () => {},
+
 							}),
 					},
 			{
@@ -1605,7 +1809,8 @@ function openSettings() {
 				sub: TEXT_SIZES.find((t) => t.px === textSize())?.label,
 				onClick: openTextSize,
 			},
-			{ icon: "lock", label: "Lock now", onClick: lockNow },
+			{ icon: "pc", label: "Devices and passkeys", onClick: manageDevices },
+		{ icon: "lock", label: "Lock now", onClick: () => lockNow() },
 			{
 				icon: "info",
 				label: "About",
@@ -1614,7 +1819,7 @@ function openSettings() {
 						title: "connect-pi",
 						body: `Talking to ${location.host}. Sessions auto-lock after ${state.auth.lockAfterMinutes ?? 60} minutes idle.`,
 						confirm: "Close",
-						onConfirm: () => {},
+
 					}),
 			},
 		],
@@ -1627,6 +1832,7 @@ function openSettings() {
 async function openPicker() {
 	show("picker");
 	pushBack(() => show("chat"));
+	$("pickBack").focus();
 	await loadRoots();
 }
 
@@ -1670,12 +1876,13 @@ function renderPicker() {
 	list.innerHTML = "";
 	const atTop = !state.pick.path;
 
-	$("pickPath").textContent = atTop ? "Where pi is allowed to work" : shortPath(state.pick.path);
+	$("pickPath").textContent = atTop ? "Folders available on your phone" : shortPath(state.pick.path);
 	$("pickStart").disabled = atTop;
 	$("pickNewFolder").disabled = atTop;
 	$("pickNewFolder").style.opacity = atTop ? "0.4" : "1";
 
 	if (atTop) {
+		if (!state.pick.roots.length) list.appendChild(el("div", "pick-empty", "Run /phone folders on your PC to share a project."));
 		for (const r of state.pick.roots) {
 			const row = el("button", "pick-row");
 			row.innerHTML = `${icon("folder")}<div class="who"><div class="name">${esc(r.name)}</div><div class="where">${esc(r.path)}${r.exists ? "" : " — missing"}</div></div>${icon("chevron", "ic ic-20 chev")}`;
@@ -1731,53 +1938,67 @@ $("pickNewFolder").onclick = () => {
  * `folder`, or `resumeId` to reopen a past conversation — the PC works out the
  * folder for a resume, so nothing here can point pi somewhere it should not go.
  */
+let launching = false;
 async function launch({ label, folder, resumeId }) {
+	if (launching || state.pending || !loggedIn) return false;
+	launching = true;
 	try {
 		const session = resumeId ? await api.resumeSession(resumeId) : await api.startSession(folder);
-		state.pending = { id: session.id, name: label || folder, folder, resuming: Boolean(resumeId), since: Date.now() };
-		state.agentId = null;
-		state.events.clear();
+		if (!loggedIn) return false;
 		closeTop();
 		show("chat");
+		if (state.agents.some((agent) => agent.id === session.id)) {
+			attach(session.id);
+			return true;
+		}
+		saveDraft();
+		state.pending = { id: session.id, name: label || folder, resuming: Boolean(resumeId) };
+		state.agentId = null;
+		restoreDraft();
+		state.events.clear();
 		renderThread();
+		renderOutbox();
 		syncFromAgent();
-		watchPending();
+		void watchPending(state.pending);
 		return true;
-	} catch (e) {
-		toast(e.message, 4500);
+	} catch (error) {
+		toast(error.message, 4500);
 		return false;
-	}
+	} finally { launching = false; }
 }
 
 $("pickStart").onclick = async () => {
 	const folder = state.pick.path;
 	if (!folder) return;
-	const btn = $("pickStart");
-	btn.disabled = true;
-	btn.textContent = "Starting…";
-	try {
-		await launch({ label: state.pick.name || folder, folder });
-	} finally {
-		btn.disabled = false;
-		btn.textContent = "Start pi here";
+	const button = $("pickStart");
+	button.disabled = true;
+	button.textContent = "Starting…";
+	try { await launch({ label: state.pick.name || folder, folder }); }
+	finally {
+		button.disabled = !state.pick.path;
+		button.textContent = "Start pi here";
 	}
 };
 
-// pi takes a few seconds to boot and register itself. If it never shows up,
-// say so rather than spinning forever.
-function watchPending() {
-	const mine = state.pending;
-	setTimeout(() => {
-		if (state.pending !== mine) return;
-		state.pending = null;
-		renderThread();
-		upsert({
-			k: "notice",
-			id: `late-${Date.now()}`,
-			level: "error",
-			text: "pi did not come online. Check the bridge window on your PC.",
-		});
-	}, 60000);
+async function watchPending(pending) {
+	let problem;
+	for (let attempt = 0; attempt < 35 && state.pending === pending; attempt += 1) {
+		await new Promise((done) => setTimeout(done, 1500));
+		if (state.pending !== pending) return;
+		try {
+			const result = await api.sessionStatus(pending.id);
+			if (state.pending !== pending) return;
+			if (["exited", "stopped", "unknown"].includes(result.status)) {
+				problem = result.message || "Pi closed before it connected.";
+				break;
+			}
+		} catch { /* the live socket can still reconnect */ }
+	}
+	if (state.pending !== pending) return;
+	state.pending = null;
+	renderThread();
+	syncFromAgent();
+	toast(problem || "Pi has not connected. Check /phone doctor on your PC.", 5000);
 }
 
 // ---------------------------------------------------------------- session life
@@ -1795,7 +2016,7 @@ function touch() {
 document.addEventListener("pointerdown", touch, { passive: true });
 
 document.addEventListener("visibilitychange", () => {
-	if (document.visibilityState !== "visible" || state.screen === "lock") return;
+	if (document.visibilityState !== "visible" || !loggedIn || state.screen === "lock") return;
 	state.lastTouch = 0;
 	api.me()
 		.then(() => {
@@ -1809,23 +2030,29 @@ document.addEventListener("visibilitychange", () => {
 
 // ---------------------------------------------------------------- boot
 
+async function checkSession() {
+	try {
+		if (localStorage.getItem(LOCAL_LOCK)) {
+			await api.lock();
+			localStorage.removeItem(LOCAL_LOCK);
+		}
+		await api.me(false);
+		await enterApp();
+	} catch (error) {
+		if (isUnreachable(error)) return showOffline();
+		return showLock();
+	}
+}
+
 async function boot() {
+	localStorage.removeItem("connect-pi.token"); // invalidate the old PWA's browser-stored credential
 	applyTextSize(textSize());
-	paintThemeColor(); // the attribute is already set by index.html; this syncs the meta
+	paintThemeColor();
 	paintBubble();
 	buildKeypad();
 	setSendButton();
 	autoGrow();
-
-	if (!token.get()) return showLock();
-	try {
-		await api.me();
-		await enterApp();
-	} catch (e) {
-		// unreachable is not the same as locked out
-		if (isUnreachable(e)) return showOffline();
-		showLock();
-	}
+	await checkSession();
 }
 
 boot();
@@ -1836,11 +2063,16 @@ if ("serviceWorker" in navigator) {
 
 // Keep keyboard navigation inside the current modal, and let Escape go back.
 document.addEventListener("keydown", (event) => {
+	if (state.screen === "lock" && !$("pinArea").classList.contains("hidden") && !event.altKey && !event.metaKey && !event.ctrlKey) {
+		const key = /^\d$/.test(event.key) ? [...$("keypad").querySelectorAll("button")].find((button) => button.textContent === event.key)
+			: event.key === "Backspace" ? $("keypad").querySelector(".flat") : null;
+		if (key) { event.preventDefault(); key.click(); return; }
+	}
 	if (event.key === "Escape" && backStack.length) { event.preventDefault(); closeTop(); return; }
 	if (event.key !== "Tab") return;
 	const modal = [$("dialogWrap"), $("sheetWrap"), $("actionsWrap"), $("drawer")].find((node) => !node.classList.contains("hidden"));
 	if (!modal) return;
-	const controls = [...modal.querySelectorAll('button, input, textarea, [tabindex="0"]')].filter((node) => !node.disabled && node.getClientRects().length);
+	const controls = [...modal.querySelectorAll('button, input, textarea, select, summary, a[href], [tabindex="0"]')].filter((node) => !node.disabled && node.getClientRects().length);
 	const first = controls[0], last = controls.at(-1);
 	if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
 	else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }

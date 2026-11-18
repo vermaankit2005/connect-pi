@@ -1,8 +1,4 @@
-// A small markdown renderer, just enough for what pi sends back.
-//
-// Deliberately hand-rolled: the app has to work with no network beyond the
-// bridge, so pulling in a library is not an option. Everything is escaped
-// before any tag is added, so model output can never inject HTML.
+// Offline Markdown rendering with HTML disabled and local code highlighting.
 
 const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ESC[c]);
@@ -151,109 +147,24 @@ export function codeBlock(code, lang = "") {
 	);
 }
 
-// ---------------------------------------------------------------- inline
-
-function inline(s) {
-	let t = esc(s);
-	// Code spans come out first so nothing inside them is treated as markup. The
-	// placeholder is a control character that cannot survive escaping, so it can
-	// never collide with a plain number in the text.
-	const spans = [];
-	t = t.replace(/`([^`]+)`/g, (_, c) => {
-		spans.push(c);
-		return `\u0001${spans.length - 1}\u0001`;
-	});
-	t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-	t = t.replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>");
-	t = t.replace(/(^|[\s(])_([^_\n]+)_/g, "$1<em>$2</em>");
-	t = t.replace(/~~([^~]+)~~/g, "<del>$1</del>");
-	t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-	t = t.replace(/\u0001(\d+)\u0001/g, (_, i) => `<code class="inline">${spans[Number(i)]}</code>`);
-	return t;
+export function createMarkdownRenderer(MarkdownIt) {
+	const md = new MarkdownIt({ html: false, breaks: true, maxNesting: 20 });
+	md.renderer.rules.fence = (tokens, i) => {
+		const token = tokens[i];
+		return codeBlock(token.content.replace(/\n$/, ""), token.info.trim().split(/\s+/)[0] || "");
+	};
+	md.renderer.rules.image = (tokens, i) => `<span class="notice">[Image: ${esc(tokens[i].content || "external image")}]</span>`;
+	md.renderer.rules.link_open = (tokens, i, options, env, renderer) => {
+		tokens[i].attrSet("target", "_blank");
+		tokens[i].attrSet("rel", "noopener noreferrer");
+		return renderer.renderToken(tokens, i, options);
+	};
+	return (value) => md.render(String(value ?? ""));
 }
 
-// ---------------------------------------------------------------- blocks
-
-/** Markdown to HTML. Unclosed code fences are rendered too, so a block that is
- *  still streaming in shows its contents rather than vanishing. */
-export function markdown(src) {
-	const lines = String(src ?? "").replace(/\r\n/g, "\n").split("\n");
-	let html = "";
-	let i = 0;
-	let para = [];
-
-	const flushPara = () => {
-		if (para.length) {
-			html += `<p>${inline(para.join("\n")).replace(/\n/g, "<br>")}</p>`;
-			para = [];
-		}
-	};
-
-	while (i < lines.length) {
-		const line = lines[i];
-		const fence = line.match(/^\s*```\s*([\w+-]*)\s*$/);
-
-		if (fence) {
-			flushPara();
-			const lang = (fence[1] || "").toLowerCase();
-			const body = [];
-			i += 1;
-			while (i < lines.length && !/^\s*```/.test(lines[i])) body.push(lines[i++]);
-			i += 1; // step past the closing fence, if there was one
-			html += codeBlock(body.join("\n"), lang);
-			continue;
-		}
-
-		if (/^\s*$/.test(line)) {
-			flushPara();
-			i += 1;
-			continue;
-		}
-
-		const head = line.match(/^(#{1,3})\s+(.*)$/);
-		if (head) {
-			flushPara();
-			html += `<h${head[1].length}>${inline(head[2])}</h${head[1].length}>`;
-			i += 1;
-			continue;
-		}
-
-		if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) {
-			flushPara();
-			html += "<hr>";
-			i += 1;
-			continue;
-		}
-
-		if (/^\s*>\s?/.test(line)) {
-			flushPara();
-			const body = [];
-			while (i < lines.length && /^\s*>\s?/.test(lines[i])) body.push(lines[i++].replace(/^\s*>\s?/, ""));
-			html += `<blockquote>${inline(body.join("\n")).replace(/\n/g, "<br>")}</blockquote>`;
-			continue;
-		}
-
-		const bullet = /^\s*[-*+]\s+/;
-		const numbered = /^\s*\d+[.)]\s+/;
-		if (bullet.test(line) || numbered.test(line)) {
-			flushPara();
-			const ordered = numbered.test(line);
-			const re = ordered ? numbered : bullet;
-			const items = [];
-			while (i < lines.length && re.test(lines[i])) {
-				let item = lines[i++].replace(re, "");
-				// keep plainly indented continuation lines with their bullet
-				while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !re.test(lines[i])) item += "\n" + lines[i++].trim();
-				items.push(`<li>${inline(item).replace(/\n/g, "<br>")}</li>`);
-			}
-			html += ordered ? `<ol>${items.join("")}</ol>` : `<ul>${items.join("")}</ul>`;
-			continue;
-		}
-
-		para.push(line);
-		i += 1;
-	}
-
-	flushPara();
-	return html;
+let render;
+export function markdown(value) {
+	if (!globalThis.markdownit) return esc(value);
+	render ||= createMarkdownRenderer(globalThis.markdownit);
+	return render(value);
 }

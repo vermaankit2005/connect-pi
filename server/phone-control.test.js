@@ -4,6 +4,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile, readdir } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import net from "node:net";
+import { once } from "node:events";
+import { WebSocket } from "ws";
 
 const sandbox = await mkdtemp(join(tmpdir(), "connect-pi-control-"));
 process.env.CONNECT_PI_CONFIG = join(sandbox, "config.json");
@@ -45,7 +47,7 @@ test("phone setup, settings and controlled bridge lifecycle", async (t) => {
 		const cfg = config.loadConfig();
 		assert.deepEqual(cfg.roots, [await control.validateFolder(folder)]);
 		assert.equal(config.hasPasscode(cfg), true);
-		assert.equal(cfg.allowLan, false);
+		assert.equal(cfg.allowLan, undefined);
 		assert(!JSON.stringify(cfg).includes("123456"));
 		assert(!ctx.messages.join().includes("123456"));
 		assert((await readFile(join(sandbox, "agent", "extensions", "connect-pi.ts"), "utf8")).includes("export { default }"));
@@ -77,13 +79,64 @@ test("phone setup, settings and controlled bridge lifecycle", async (t) => {
 		assert.equal(await readFile(config.CONFIG_PATH, "utf8"), before);
 		assert.equal((await control.localStatus()).pid, pid);
 	});
-	await t.test("passcode changes restart the bridge and revoke old phone logins", async () => {
-		const cfg = config.loadConfig(); config.issueToken(cfg, "test phone");
-		const pid = (await control.localStatus()).pid;
+	await t.test("passcode rotation immediately revokes old logins and keeps Pi running", async () => {
+		const info = await control.localStatus();
+		const base = `http://127.0.0.1:${info.port}`;
+		const login = (passcode) => fetch(`${base}/api/auth/passcode`, {
+			method: "POST", headers: { origin: base, "content-type": "application/json" },
+			body: JSON.stringify({ passcode }),
+		});
+		const before = await login("123456");
+		assert.equal(before.status, 200);
+		const cookie = before.headers.get("set-cookie");
+		assert.match(cookie, /; HttpOnly; SameSite=Strict/);
+		const me = () => fetch(`${base}/api/me`, { headers: { cookie: cookie.split(";")[0] } });
+		assert.equal((await me()).status, 200);
 		await control.handlePhoneCommand("passcode", uiContext(["654321", "654321"], [true]));
 		assert.equal(config.loadConfig().tokens.length, 0);
 		assert(config.verifyPasscode(config.loadConfig(), "654321"));
-		assert.notEqual((await control.localStatus()).pid, pid);
+		assert.equal((await control.localStatus()).pid, info.pid);
+		assert.equal((await me()).status, 401);
+		assert.equal((await login("123456")).status, 401);
+		assert.equal((await login("654321")).status, 200);
+	});
+	await t.test("a phone can start, attach, and stop a real Pi session", async () => {
+		const info = await control.localStatus();
+		const base = `http://127.0.0.1:${info.port}`;
+		const request = (path, { cookie, body } = {}) => fetch(base + path, {
+			method: body === undefined ? "GET" : "POST",
+			headers: { origin: base, ...(cookie ? { cookie } : {}), ...(body === undefined ? {} : { "content-type": "application/json" }) },
+			body: body === undefined ? undefined : JSON.stringify(body),
+		});
+		const loggedIn = await request("/api/auth/passcode", { body: { passcode: "654321" } });
+		assert.equal(loggedIn.status, 200);
+		const cookie = loggedIn.headers.get("set-cookie").split(";")[0];
+		assert.equal((await request("/api/history")).status, 401);
+		assert.equal((await fetch(base + "/api/local/status", { headers: { "x-connect-pi-token": config.loadConfig().agentToken } })).status, 403);
+		const started = await request("/api/sessions", { cookie, body: { folder } });
+		assert.equal(started.status, 200);
+		const { id } = await started.json();
+		const socket = new WebSocket(base.replace("http", "ws") + "/app", { origin: base, headers: { cookie } });
+		try {
+			await new Promise((resolve, reject) => {
+				const timer = setTimeout(() => reject(new Error("Pi did not attach within 15 seconds.")), 15_000);
+				socket.once("error", (error) => { clearTimeout(timer); reject(error); });
+				socket.on("message", (message) => {
+					const event = JSON.parse(message);
+					if (event.t === "agents" && event.agents.some((agent) => agent.id === id)) socket.send(JSON.stringify({ t: "attach", agentId: id }));
+					if (event.t === "snapshot" && event.agentId === id && event.online) {
+						clearTimeout(timer);
+						resolve();
+					}
+				});
+			});
+			const stop = await request("/api/sessions/stop", { cookie, body: { id } });
+			assert.deepEqual(await stop.json(), { stopping: true });
+			const closeEvent = once(socket, "close");
+			assert.equal((await request("/api/auth/lock", { cookie, body: {} })).status, 200);
+			await closeEvent;
+			assert.equal((await request("/api/me", { cookie })).status, 401);
+		} finally { socket.close(); }
 	});
 	await t.test("stop shuts down only the authenticated bridge and is idempotent", async () => {
 		assert.equal(await control.stopBridge(), true);

@@ -1,7 +1,10 @@
-import { handlePhoneCommand } from "../server/phone-control.js";
+import { handlePhoneCommand, runForeground } from "../server/phone-control.js";
 
 try {
-	await handlePhoneCommand(process.argv.slice(2).join(" ") || "status", {
-		hasUI: false, cwd: process.cwd(), ui: { notify: (message) => console.log(message) },
-	});
-} catch (error) { console.error(error.message); process.exitCode = 1; }
+	const args = process.argv.slice(2).join(" ");
+	if (args === "foreground") await runForeground();
+	else await handlePhoneCommand(args, { hasUI: false, cwd: process.cwd(), ui: { notify: console.log } });
+} catch (error) {
+	console.error(error.message);
+	process.exitCode = 1;
+}

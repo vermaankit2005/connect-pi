@@ -11,6 +11,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { controlPort } from "../server/config.js";
 import { handlePhoneCommand, PHONE_COMMANDS } from "../server/phone-control.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -19,9 +20,9 @@ const STOP_TEXT =
 	"STOP. Abandon the current task immediately. Do not run any more tools. Briefly say what you had done so far, then wait for my next instruction.";
 const STATUS_KEY = "connect-pi";
 const UPDATE_THROTTLE_MS = 90; // how often streaming text is pushed to the phone
-const MAX_TEXT = 4000; // cap on any single blob we ship to the phone
+const MAX_TEXT = 48_000; // cap on any single blob we ship to the phone
 
-type BridgeConfig = { port?: number; agentToken?: string };
+type BridgeConfig = { port: number; controlPort?: number; agentToken: string };
 
 function readBridgeConfig(): BridgeConfig | null {
 	try {
@@ -42,6 +43,11 @@ function summarize(args: any): string {
 	return s.length > 300 ? `${s.slice(0, 300)}…` : s;
 }
 
+function boundedArgs(args: unknown): unknown {
+	const encoded = safeJson(args);
+	return encoded.length > MAX_TEXT ? { preview: encoded.slice(0, MAX_TEXT) + "\n… (truncated)" } : args;
+}
+
 function safeJson(v: any): string {
 	try {
 		return JSON.stringify(v) ?? "";
@@ -52,13 +58,13 @@ function safeJson(v: any): string {
 
 // Content blocks arrive in a few shapes; flatten to something the phone renders.
 function flatten(content: any): any[] {
-	if (typeof content === "string") return [{ type: "text", text: content }];
+	if (typeof content === "string") return [{ type: "text", text: content.slice(0, MAX_TEXT) }];
 	if (!Array.isArray(content)) return [];
 	const out: any[] = [];
 	for (const b of content) {
 		if (!b || typeof b !== "object") continue;
-		if (b.type === "text") out.push({ type: "text", text: String(b.text ?? "") });
-		else if (b.type === "thinking") out.push({ type: "thinking", text: String(b.thinking ?? "") });
+		if (b.type === "text") out.push({ type: "text", text: String(b.text ?? "").slice(0, MAX_TEXT) });
+		else if (b.type === "thinking") out.push({ type: "thinking", text: String(b.thinking ?? "").slice(0, MAX_TEXT) });
 		else if (b.type === "toolCall") out.push({ type: "toolCall", id: b.id, name: b.name, summary: summarize(b.arguments) });
 		else if (b.type === "image") out.push({ type: "image", mimeType: b.mimeType || "image/png" });
 	}
@@ -85,6 +91,7 @@ export default function connectPi(pi: ExtensionAPI) {
 	let shuttingDown = false;
 
 	let isStreaming = false;
+	let waiting = false;
 	let stopRequested = false;
 	let cwd = process.cwd();
 	let modelName = "";
@@ -92,10 +99,11 @@ export default function connectPi(pi: ExtensionAPI) {
 	let activeContext: any = null;
 	let ui: any = null;
 	let seq = 0;
+	const sentPrompts: Array<{ id: string; text: string; image: boolean }> = [];
 
 	// Stable per-session id, so a phone reattaches to the same conversation
 	// after either side reconnects.
-	const agentId = `${basename(cwd) || "pi"}-${process.pid}`;
+	let agentId = `${basename(cwd) || "pi"}-${process.pid}`;
 
 	// pi's own id for this conversation, and the file it is being written to.
 	// The bridge uses these to tell which entry in the phone's history list is
@@ -125,7 +133,8 @@ export default function connectPi(pi: ExtensionAPI) {
 	}
 
 	function pushState() {
-		raw({ t: "state", state: { isStreaming, model: modelName, thinking, cwd } });
+		piSessionFile = activeContext?.sessionManager?.getSessionFile?.() || piSessionFile;
+		raw({ t: "state", state: { isStreaming, waiting, model: modelName, thinking, piSessionFile } });
 	}
 
 	function setStatus() {
@@ -147,7 +156,7 @@ export default function connectPi(pi: ExtensionAPI) {
 		if (shuttingDown || !cfg || ws) return;
 		let socket: WebSocket;
 		try {
-			socket = new WebSocket(`ws://127.0.0.1:${cfg.port || 4317}/agent?token=${cfg.agentToken}`);
+			socket = new WebSocket(`ws://127.0.0.1:${controlPort(cfg)}/agent?token=${cfg.agentToken}`);
 		} catch {
 			return scheduleRetry();
 		}
@@ -168,7 +177,7 @@ export default function connectPi(pi: ExtensionAPI) {
 					name: (typeof pi.getSessionName === "function" && pi.getSessionName()) || basename(cwd),
 					pid: process.pid,
 				},
-				state: { isStreaming, model: modelName, thinking, cwd },
+				state: { isStreaming, waiting, model: modelName, thinking },
 			});
 			setStatus();
 		});
@@ -184,7 +193,7 @@ export default function connectPi(pi: ExtensionAPI) {
 				watchers = msg.count || 0;
 				setStatus();
 			} else if (msg.t === "prompt") {
-				fromPhone(String(msg.text || ""), msg.mode);
+				fromPhone(msg);
 			} else if (msg.t === "stop") {
 				requestStop();
 			} else if (msg.t === "thinking") {
@@ -201,6 +210,7 @@ export default function connectPi(pi: ExtensionAPI) {
 		});
 
 		socket.addEventListener("close", () => {
+			if (ws !== socket) return;
 			connected = false;
 			ws = null;
 			setStatus();
@@ -227,19 +237,34 @@ export default function connectPi(pi: ExtensionAPI) {
 
 	// ---------------------------------------------------------- inbound
 
-	function fromPhone(text: string, mode?: string) {
-		if (!text.trim()) return;
-		stopRequested = false;
+	function fromPhone(msg: any) {
+		const text = typeof msg.text === "string" ? msg.text : "";
+		if (!text.trim() && !msg.image) return;
+		const reply = (status: string, message?: string) => raw({ t: "receipt", id: msg.id, status, message });
+		if (/^\s*\/(?:phone|connect-pi)(?:\s|$)/i.test(text)) {
+			reply("failed", "Use bridge setup and control commands on your PC.");
+			return;
+		}
+		if (stopRequested) {
+			reply("failed", "Wait for the current run to stop, then try again.");
+			return;
+		}
+		const content = msg.image ? [
+			{ type: "text" as const, text: text || "Review this image." },
+			{ type: "image" as const, data: msg.image.data, mimeType: msg.image.mimeType },
+		] : text;
 		try {
-			// expandPromptTemplates lets you fire /commands and skills from the phone
-			if (isStreaming) {
-				pi.sendUserMessage(text, { deliverAs: mode === "followUp" ? "followUp" : "steer", expandPromptTemplates: true });
-				emit({ k: "notice", id: `n${seq++}`, level: "info", text: "Queued — pi will pick this up after the current step." });
-			} else {
-				pi.sendUserMessage(text, { expandPromptTemplates: true });
-			}
-		} catch (err: any) {
-			emit({ k: "notice", id: `n${seq++}`, level: "error", text: `Could not send: ${err?.message || err}` });
+			const options = isStreaming
+				? { deliverAs: (msg.mode === "followUp" ? "followUp" : "steer") as "followUp" | "steer", expandPromptTemplates: true }
+				: { expandPromptTemplates: true };
+			if (sentPrompts.length >= 32) throw new Error("Wait for the queued messages to finish.");
+			sentPrompts.push({ id: msg.id, text: text.trim() || "Review this image.", image: Boolean(msg.image) });
+			pi.sendUserMessage(content, options);
+			reply("accepted", isStreaming ? "Queued in Pi" : undefined);
+		} catch (error: any) {
+			const index = sentPrompts.findIndex((item) => item.id === msg.id);
+			if (index >= 0) sentPrompts.splice(index, 1);
+			reply("failed", error?.message || "Pi could not accept this message.");
 		}
 	}
 
@@ -247,7 +272,7 @@ export default function connectPi(pi: ExtensionAPI) {
 	// gate as a fallback for older installs where abort is not available.
 	function requestStop() {
 		if (!isStreaming) {
-			emit({ k: "notice", id: `n${seq++}`, level: "info", text: "Nothing is running." });
+			emit({ k: "run_stopped", id: `n${seq++}`, text: "Pi is already idle." });
 			return;
 		}
 		stopRequested = true;
@@ -277,7 +302,9 @@ export default function connectPi(pi: ExtensionAPI) {
 		} catch (err) {
 			console.error("connect-pi: session metadata unavailable", err);
 		}
-		if (!cfg) return; // bridge never set up on this machine — stay out of the way
+		if (!process.env.CONNECT_PI_LAUNCH_ID && piSessionId) agentId = `${process.pid}-${piSessionId}`;
+		else if (process.env.CONNECT_PI_LAUNCH_ID) agentId = process.env.CONNECT_PI_LAUNCH_ID;
+		if (!cfg) return; // bridge never set up on this machine
 		connect();
 		setStatus();
 	});
@@ -312,6 +339,9 @@ export default function connectPi(pi: ExtensionAPI) {
 		emit({ k: "notice", id: `k${seq++}`, level: "info", text: "Conversation compacted to save space." });
 	});
 
+	pi.on("ui_prompt_start", async () => { waiting = true; pushState(); });
+	pi.on("ui_prompt_end", async () => { waiting = false; pushState(); });
+
 	pi.on("agent_start", async (_event, ctx: any) => {
 		activeContext = ctx;
 		isStreaming = true;
@@ -323,6 +353,12 @@ export default function connectPi(pi: ExtensionAPI) {
 	// agent_settled means "pi has really stopped".
 	pi.on("agent_settled", async () => {
 		isStreaming = false;
+		waiting = false;
+		if (stopRequested) {
+			for (const prompt of sentPrompts.splice(0)) raw({ t: "receipt", id: prompt.id, status: "failed", message: "Canceled before Pi started this message." });
+			emit({ k: "run_stopped", id: `stop${seq++}`, text: "Pi stopped." });
+		}
+		sentPrompts.length = 0;
 		stopRequested = false;
 		pushState();
 		emit({ k: "done", id: `end${seq++}` });
@@ -335,7 +371,11 @@ export default function connectPi(pi: ExtensionAPI) {
 			const blocks = flatten(m.content);
 			// our own stop instruction is machinery, not something you typed
 			if (blocks.length === 1 && blocks[0].type === "text" && blocks[0].text.trim() === STOP_TEXT) return;
-			emit({ k: "user", id: `u${seq++}`, blocks, ts: m.timestamp });
+			const text = (typeof m.content === "string" ? m.content : (m.content || []).filter((b: any) => b?.type === "text").map((b: any) => b.text).join("\n")).trim();
+			const image = blocks.some((block) => block.type === "image");
+			const index = sentPrompts.findIndex((item) => item.text === text && item.image === image);
+			const promptId = index >= 0 ? sentPrompts.splice(index, 1)[0].id : undefined;
+			emit({ k: "user", id: `u${seq++}`, promptId, blocks, ts: m.timestamp });
 		} else if (m.role === "custom" && m.display) {
 			emit({ k: "notice", id: `c${seq++}`, level: "info", text: textOf(m.content, 600) });
 		} else if (m.role === "compactionSummary") {
@@ -387,7 +427,7 @@ export default function connectPi(pi: ExtensionAPI) {
 
 	pi.on("tool_execution_start", async (event: any) => {
 		pendingArgs.set(event.toolCallId, event.args);
-		emit({ k: "tool", id: event.toolCallId, name: event.toolName, summary: summarize(event.args), args: event.args, status: "running" });
+		emit({ k: "tool", id: event.toolCallId, name: event.toolName, summary: summarize(event.args), args: boundedArgs(event.args), status: "running" });
 	});
 
 	pi.on("tool_execution_end", async (event: any) => {
@@ -398,7 +438,7 @@ export default function connectPi(pi: ExtensionAPI) {
 			id: event.toolCallId,
 			name: event.toolName,
 			summary: summarize(args),
-			args,
+			args: boundedArgs(args),
 			status: event.isError ? "error" : "done",
 			result: textOf(event.result?.content ?? event.result),
 		});

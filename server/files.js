@@ -5,7 +5,7 @@
 
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { realpath } from "node:fs/promises";
-import { basename, join, resolve, sep } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const HIDDEN = new Set([
 	"node_modules",
@@ -28,27 +28,22 @@ const HIDDEN = new Set([
 /** "D:\\" has no basename, so fall back to the path itself. */
 const prettyName = (p) => basename(p) || p;
 
-async function realOrSelf(p) {
-	try {
-		return await realpath(p);
-	} catch {
-		return resolve(p);
-	}
-}
-
 function within(child, parent) {
-	const c = child.toLowerCase();
-	const p = parent.toLowerCase();
-	return c === p || c.startsWith(p.endsWith(sep) ? p : p + sep);
+	const rel = relative(parent, child);
+	return !rel || (rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel));
 }
 
-/** Resolve a requested path and confirm it sits inside one of the roots. */
+/** Only existing directories under an existing, canonical root are accepted. */
 export async function resolveInsideRoots(requested, roots) {
-	const real = await realOrSelf(resolve(requested));
-	for (const root of roots) {
-		const realRoot = await realOrSelf(resolve(root));
-		if (within(real, realRoot)) return real;
-	}
+	if (typeof requested !== "string" || !isAbsolute(requested)) return null;
+	try {
+		const real = await realpath(requested);
+		if (!(await stat(real)).isDirectory()) return null;
+		for (const root of roots) {
+			const realRoot = await realpath(root).catch(() => null);
+			if (realRoot && within(real, realRoot)) return real;
+		}
+	} catch {}
 	return null;
 }
 
@@ -99,16 +94,15 @@ export async function listFolders(dir, roots) {
 
 /** Create a new folder for a fresh project, inside the allowed roots. */
 export async function createFolder(parentDir, name, roots) {
-	const clean = String(name || "").trim();
+	const clean = typeof name === "string" ? name.trim() : "";
 	if (!clean) throw new Error("Give the folder a name.");
 	if (/[\\/:*?"<>|]/.test(clean)) throw new Error('A folder name cannot contain \\ / : * ? " < > |');
-	if (clean === "." || clean === "..") throw new Error("That is not a valid name.");
+	if (clean.endsWith(".") || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(clean) || clean.length > 120) throw new Error("That is not a valid name.");
 
 	const realParent = await resolveInsideRoots(parentDir, roots);
 	if (!realParent) throw new Error("That folder is outside the allowed list.");
 
 	const target = join(realParent, clean);
-	if (!(await resolveInsideRoots(target, roots))) throw new Error("That would land outside the allowed list.");
 
 	await mkdir(target, { recursive: false });
 	return target;

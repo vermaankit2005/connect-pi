@@ -10,12 +10,11 @@
 // We only ever READ these files. Resuming is done by handing pi the session id
 // on the command line and letting pi open its own file.
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { basename, join, sep } from "node:path";
+import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-const MAX_PARSE_BYTES = 8 * 1024 * 1024; // a session this big is a runaway, not a chat
 const TITLE_CHARS = 90;
-const MAX_TEXT = 4000; // same cap the extension uses when streaming live
+const MAX_TEXT = 48_000; // same cap the extension uses when streaming live
 
 // pi's own sentinel for the phone's Stop button. It is machinery, not
 // something the user typed, so it never belongs in a title or a replay.
@@ -44,14 +43,24 @@ function summarize(args) {
 	return s.length > 300 ? `${s.slice(0, 300)}…` : s;
 }
 
+const boundedText = (value) => {
+	const text = String(value ?? "");
+	return text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + "\n… (truncated)" : text;
+};
+
+function boundedArgs(args) {
+	const encoded = JSON.stringify(args);
+	return encoded?.length > MAX_TEXT ? { preview: boundedText(encoded) } : args;
+}
+
 function flatten(content) {
-	if (typeof content === "string") return [{ type: "text", text: content }];
+	if (typeof content === "string") return [{ type: "text", text: boundedText(content) }];
 	if (!Array.isArray(content)) return [];
 	const out = [];
 	for (const b of content) {
 		if (!b || typeof b !== "object") continue;
-		if (b.type === "text") out.push({ type: "text", text: String(b.text ?? "") });
-		else if (b.type === "thinking") out.push({ type: "thinking", text: String(b.thinking ?? "") });
+		if (b.type === "text") out.push({ type: "text", text: boundedText(b.text) });
+		else if (b.type === "thinking") out.push({ type: "thinking", text: boundedText(b.thinking) });
 		else if (b.type === "toolCall") out.push({ type: "toolCall", id: b.id, name: b.name, summary: summarize(b.arguments) });
 		else if (b.type === "image") out.push({ type: "image", mimeType: b.mimeType || "image/png" });
 	}
@@ -78,7 +87,8 @@ function parseFile(path) {
 	for (const line of text.split("\n")) {
 		if (!line.trim()) continue;
 		try {
-			out.push(JSON.parse(line));
+			const entry = JSON.parse(line);
+			if (entry && typeof entry === "object" && typeof entry.type === "string") out.push(entry);
 		} catch {
 			// a half-written last line is normal while pi is running; skip it
 		}
@@ -163,7 +173,7 @@ function metaFor(path) {
 	} catch {
 		return null;
 	}
-	if (stats.size === 0 || stats.size > MAX_PARSE_BYTES) return null;
+	if (stats.size === 0 || !stats.isFile()) return null;
 
 	const stamp = `${stats.mtimeMs}:${stats.size}`;
 	const hit = cache.get(path);
@@ -178,25 +188,28 @@ function metaFor(path) {
 	if (!read) return null;
 
 	cache.set(path, { stamp, meta: read.meta });
-	if (cache.size > 400) cache.delete(cache.keys().next().value);
+	if (cache.size > 4000) cache.delete(cache.keys().next().value);
 	return read.meta;
 }
 
-const within = (child, parent) => {
-	const c = child.toLowerCase();
-	const p = parent.toLowerCase();
-	return c === p || c.startsWith(p.endsWith(sep) ? p : p + sep);
-};
+function canonical(path) {
+	try { return realpathSync(path); } catch { return null; }
+}
 
-/**
- * Every session on this PC, newest activity first.
- *
- * `canResume` is false for sessions that ran outside the allowed roots — they
- * still show, because hiding them would make the list quietly incomplete, but
- * the phone will not start pi there.
- */
+function within(child, parent) {
+	const rel = relative(parent, child);
+	return !rel || (rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel));
+}
+
+export function safeSessionFile(file, agentDir) {
+	const root = canonical(sessionsRoot(agentDir));
+	const path = typeof file === "string" && file.endsWith(".jsonl") && canonical(file);
+	return root && path && within(path, root) ? path : null;
+}
+
 export function listSessions({ agentDir, roots = [] }) {
 	const root = sessionsRoot(agentDir);
+	const allowed = roots.map((path) => canonical(resolve(path))).filter(Boolean);
 	let dirs;
 	try {
 		dirs = readdirSync(root, { withFileTypes: true });
@@ -209,16 +222,17 @@ export function listSessions({ agentDir, roots = [] }) {
 		if (!d.isDirectory()) continue;
 		let files;
 		try {
-			files = readdirSync(join(root, d.name));
+			files = readdirSync(join(root, d.name), { withFileTypes: true });
 		} catch {
 			continue;
 		}
 		for (const f of files) {
-			if (!f.endsWith(".jsonl")) continue;
-			const meta = metaFor(join(root, d.name, f));
+			if (!f.isFile() || !f.name.endsWith(".jsonl")) continue;
+			const meta = metaFor(join(root, d.name, f.name));
 			// A session with nothing in it is an aborted launch, not history.
 			if (!meta || !meta.cwd || !meta.userTurns) continue;
-			out.push({ ...meta, canResume: roots.some((r) => within(meta.cwd, r)) });
+			const cwd = canonical(meta.cwd);
+			if (cwd && allowed.some((r) => within(cwd, r))) out.push({ ...meta, cwd, canResume: true });
 		}
 	}
 
@@ -246,8 +260,6 @@ export function findSession({ agentDir, roots = [] }, id) {
 export function readTranscript(path) {
 	let entries;
 	try {
-		const stats = statSync(path);
-		if (stats.size > MAX_PARSE_BYTES) return [];
 		entries = activeEntries(parseFile(path));
 	} catch {
 		return [];
@@ -265,6 +277,7 @@ export function readTranscript(path) {
 		if (e.type !== "message") continue;
 
 		const m = e.message;
+		if (!m || typeof m !== "object") continue;
 		const ts = Date.parse(e.timestamp) || undefined;
 
 		if (m.role === "user") {
@@ -293,7 +306,7 @@ export function readTranscript(path) {
 				id: m.toolCallId || `ht${n++}`,
 				name: m.toolName || asked.name || "tool",
 				summary: summarize(asked.args),
-				args: asked.args,
+				args: boundedArgs(asked.args),
 				status: m.isError ? "error" : "done",
 				result: textOf(m.content),
 				ts,

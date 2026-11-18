@@ -1,6 +1,8 @@
 // Project identity is the full working folder, never just its display name.
 export function projectKey(path) {
-	return String(path || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+	const raw = String(path || "");
+	const normalized = raw.replace(/\\/g, "/").replace(/\/+$/, "") || raw;
+	return /^(?:[a-z]:|[\\/]{2})/i.test(raw) ? normalized.toLowerCase() : normalized;
 }
 
 export function projectGroups(agents, history) {

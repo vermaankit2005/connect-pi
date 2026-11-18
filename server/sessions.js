@@ -8,10 +8,15 @@
 // pi is launched with its own agent directory, so it uses the login you
 // already have on this PC. No keys are handled here.
 
-import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+const MAX_CHILDREN = 6;
 
 const PKG = join("node_modules", "@earendil-works", "pi-coding-agent");
 // 0.85 moved the real entry point under dist/bundle; older builds only have dist/cli.js.
@@ -137,16 +142,8 @@ export class SessionLauncher {
 		this.pi = detectPi();
 		this.children = new Map(); // agentId -> { child, folder, startedAt, output }
 		this.keepAwake = null;
+		this.outcomes = new Map();
 		this.onLog = onLog || (() => {});
-	}
-
-	/**
-	 * The id the connect-pi extension will register itself under. It builds this
-	 * from the folder name and its own pid, so we can predict it here and let the
-	 * phone attach to the session the moment it appears.
-	 */
-	static agentIdFor(folder, pid) {
-		return `${basename(folder) || "pi"}-${pid}`;
 	}
 
 	list() {
@@ -173,6 +170,8 @@ export class SessionLauncher {
 	 * an interactive picker, which would simply hang in rpc mode.
 	 */
 	start(folder, { resume = null } = {}) {
+		if (this.children.size >= MAX_CHILDREN) throw new Error("Close a phone-started session before starting another.");
+		if (resume && this.list().some((session) => session.resumed?.id === resume.id)) throw new Error("This conversation is already opening or running.");
 		if (!this.pi.ok) throw new Error("Could not find pi on this PC. Install it (npm i -g @earendil-works/pi-coding-agent) or set PI_CLI to its cli.js.");
 		// without this, spawn fails half-silently and the phone waits for a
 		// session that is never coming
@@ -180,7 +179,8 @@ export class SessionLauncher {
 			throw new Error(`That folder does not exist: ${folder}`);
 		}
 
-		const env = { ...process.env, PI_CODING_AGENT_DIR: this.pi.agentDir };
+		const id = randomUUID();
+		const env = { ...process.env, CONNECT_PI_LAUNCH_ID: id, PI_CODING_AGENT_DIR: this.pi.agentDir };
 		for (const key of this.pi.blankEnv) env[key] = "";
 
 		const args = [this.pi.cli, "--mode", "rpc"];
@@ -194,50 +194,52 @@ export class SessionLauncher {
 			windowsHide: true,
 		});
 
-		const id = SessionLauncher.agentIdFor(folder, child.pid);
 		const rec = { child, folder, startedAt: Date.now(), output: [], resumed: resume };
 		this.children.set(id, rec);
 
 		const keep = (buf) => {
-			rec.output.push(String(buf));
-			if (rec.output.length > 40) rec.output.shift();
+			rec.output = [(rec.output.join("") + String(buf)).slice(-4096)];
 		};
-		child.stdout.on("data", () => {}); // drain, we do not speak rpc here
+		child.stdout.on("data", () => {}); // Pi RPC writes protocol lines here.
 		child.stderr.on("data", keep);
-
-		child.on("exit", (code) => {
+		const finished = (message) => {
+			if (this.children.get(id) !== rec) return;
+			this.children.delete(id);
+			this.outcomes.set(id, { status: rec.stopping ? "stopped" : "exited", message });
+			if (this.outcomes.size > 40) this.outcomes.delete(this.outcomes.keys().next().value);
+			this.updateKeepAwake();
+		};
+		child.on("close", (code) => {
 			this.onLog(`session ended: ${basename(folder)} (${code ?? "killed"})`);
-			this.children.delete(id);
-			this.updateKeepAwake();
+			if (rec.output.length) this.onLog(`Pi diagnostics: ${rec.output.join("").slice(-4096)}`);
+			finished(code === 0 ? "Pi closed the session." : `Pi exited ${code == null ? "unexpectedly" : `with code ${code}`}. Check /phone doctor on your PC.`);
 		});
-		child.on("error", (err) => {
-			keep(err.message);
-			this.children.delete(id);
-			this.updateKeepAwake();
+		child.on("error", (error) => {
+			this.onLog(`Could not launch Pi: ${error.message}`);
+			finished("Pi could not start. Check /phone doctor on your PC.");
 		});
 
 		this.onLog(`session ${resume ? "resumed" : "started"}: ${folder} (pid ${child.pid})`);
 		this.updateKeepAwake();
-		return { id, pid: child.pid, folder, resumed: resume };
+		return { id, folder };
 	}
 
 	stop(id) {
 		const rec = this.children.get(id);
 		if (!rec) return false;
-		try {
-			rec.child.kill();
-		} catch {}
-		this.children.delete(id);
-		this.updateKeepAwake();
-		return true;
+		if (rec.stopping) return true;
+		rec.stopping = rec.child.kill();
+		return rec.stopping;
 	}
 
 	stopAll() {
-		for (const id of [...this.children.keys()]) this.stop(id);
+		for (const id of this.children.keys()) this.stop(id);
 	}
 
-	lastError(id) {
-		return (this.children.get(id)?.output || []).join("").slice(-500);
+	status(id) {
+		const rec = this.children.get(id);
+		if (rec) return { status: rec.stopping ? "stopping" : "starting" };
+		return this.outcomes.get(id) || { status: "unknown" };
 	}
 
 	// ------------------------------------------------------------ keep awake
@@ -265,9 +267,10 @@ export class SessionLauncher {
 				stdio: "ignore",
 				windowsHide: true,
 			});
-			this.keepAwake.on("exit", () => {
-				this.keepAwake = null;
-			});
+			const hold = this.keepAwake;
+			const clear = () => { if (this.keepAwake === hold) this.keepAwake = null; };
+			hold.once("exit", clear);
+			hold.once("error", clear);
 			this.onLog("holding sleep off while pi works");
 		} catch {
 			this.keepAwake = null;
@@ -283,18 +286,40 @@ export class SessionLauncher {
 	}
 }
 
-/**
- * Open a Warp tab at a folder, for taking over at the desk. Warp can be pointed
- * at a directory but cannot be told to run a command, so this drops you in the
- * right place and you run `pi --resume` yourself.
- */
-export function openInWarp(folder) {
-	if (process.platform !== "win32") return false;
-	try {
-		const url = `warp://action/new_tab?path=${folder}`;
-		spawn("cmd", ["/c", "start", "", url], { stdio: "ignore", windowsHide: true, detached: true }).unref();
-		return true;
-	} catch {
-		return false;
-	}
+/** Invoke the Windows URI handler directly and put the exact handoff on the PC clipboard. */
+export async function openInWarp(folder, file) {
+	if (process.platform !== "win32") throw new Error("Opening Warp from your phone is available on Windows.");
+	const url = new URL("warp://action/new_tab");
+	url.searchParams.set("path", folder);
+	const script = [
+		"$ErrorActionPreference = 'Stop'",
+		"$start = New-Object System.Diagnostics.ProcessStartInfo",
+		"$start.FileName = $env:CONNECT_PI_WARP_URI",
+		"$start.UseShellExecute = $true",
+		"[System.Diagnostics.Process]::Start($start) | Out-Null",
+		"Set-Clipboard -Value $env:CONNECT_PI_WARP_COMMAND",
+	].join("\n");
+	const clipboard = file ? `pi --session '${file.replace(/'/g, "''")}'` : "pi";
+	await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], {
+		env: { ...process.env, CONNECT_PI_WARP_URI: url.href, CONNECT_PI_WARP_COMMAND: clipboard },
+		timeout: 8000, windowsHide: true,
+	}).catch(() => { throw new Error("Could not open Warp or copy the Pi command to the PC clipboard. Check that Warp is installed."); });
+	return { opened: true, exact: Boolean(file) };
+}
+
+export async function changedFiles(folder) {
+	const git = (args) => run("git", ["--no-pager", "--no-optional-locks", "-c", "core.fsmonitor=false", ...args], {
+		cwd: folder, timeout: 5000, maxBuffer: 256 * 1024, windowsHide: true,
+		env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" },
+	});
+	const [{ stdout: status }, { stdout: diff }] = await Promise.all([
+		git(["status", "--short", "--untracked-files=normal", "--", "."]),
+		git(["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--", "."]).catch((error) => {
+			if (!/ambiguous argument 'HEAD'|bad revision 'HEAD'/.test(error.stderr || "")) throw error;
+			return git(["diff", "--cached", "--no-ext-diff", "--no-textconv", "--", "."]);
+		}),
+	]).catch((error) => {
+		throw new Error(error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" ? "This diff is too large to preview. Open it on your PC." : "Could not read Git changes. Check that Git and a repository are available on the PC.");
+	});
+	return { status, diff: diff.slice(0, 60_000), truncated: diff.length > 60_000 };
 }

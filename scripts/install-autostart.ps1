@@ -28,7 +28,7 @@ $vbs = @"
 ' Starts the connect-pi bridge with no visible console window.
 Set shell = CreateObject("WScript.Shell")
 shell.CurrentDirectory = "$projectDir"
-shell.Run "node ""$projectDir\server\index.js""", 0, False
+shell.Run "node ""$projectDir\scripts\phone.mjs"" start", 0, False
 "@
 Set-Content -Path $launcher -Value $vbs -Encoding utf8
 

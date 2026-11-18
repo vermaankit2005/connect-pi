@@ -1,0 +1,33 @@
+name: Connect Pi checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.19.0'
+          cache: npm
+      - run: npm ci
+      - run: npm install --global @earendil-works/pi-coding-agent@1.5.2
+      - run: npm test
+      - run: npm run smoke
+      - run: npm run smoke:package
+      - name: Install Chromium
+        run: npx playwright install chromium --with-deps
+        if: runner.os == 'Linux'
+      - name: Install Chromium
+        run: npx playwright install chromium
+        if: runner.os == 'Windows'
+      - run: npm run test:ui

@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import net from "node:net";
 import { detectPi } from "../server/sessions.js";
+import { controlPort } from "../server/config.js";
 
 const pi = detectPi();
 assert(pi.ok, "Install pi before running the package smoke test.");
@@ -69,6 +70,7 @@ try {
 	assert(notices.some((n) => n.message.includes("Phone connection running")));
 	const page = await fetch(`http://127.0.0.1:${port}/`);
 	assert.equal(page.status, 200);
+	assert.equal((await fetch(`http://127.0.0.1:${port}/vendor/markdown-it.js`)).status, 200);
 	await rpc("prompt", { message: "/phone status" });
 	await rpc("prompt", { message: "/phone url" });
 	await rpc("prompt", { message: "/phone restart" });
@@ -82,7 +84,7 @@ try {
 	if (child) { child.stdin.end(); const ended = child.exitCode !== null || child.signalCode !== null ? Promise.resolve() : new Promise((done) => child.once("close", done)); child.kill(); await ended; }
 	try {
 		const cfg = JSON.parse(await readFile(configFile, "utf8"));
-		await fetch(`http://127.0.0.1:${cfg.port}/api/local/stop`, { method: "POST", headers: { "x-connect-pi-token": cfg.agentToken }, signal: AbortSignal.timeout(1500) });
+		await fetch(`http://127.0.0.1:${controlPort(cfg)}/api/local/stop`, { method: "POST", headers: { "x-connect-pi-token": cfg.agentToken }, signal: AbortSignal.timeout(1500) });
 		await new Promise((done) => setTimeout(done, 500));
 	} catch { /* bridge already stopped or setup never completed */ }
 	await rm(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

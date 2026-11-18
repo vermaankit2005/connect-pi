@@ -1,31 +1,37 @@
 // Shared by the Pi slash command and the terminal CLI. Importing this module
 // starts nothing and changes no settings.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, openSync, closeSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { CONFIG_PATH, ensureConfig, hasPasscode, loadConfig, saveConfig, setPasscode } from "./config.js";
+import { CONFIG_PATH, controlPort, ensureConfig, hasPasscode, loadConfig, saveConfig, setPasscode, validPasscode } from "./config.js";
 import { detectPi } from "./sessions.js";
-import { tailscaleUrl } from "./tailscale.js";
+import { tailscaleStatus } from "./tailscale.js";
 
 export const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const PHONE_COMMANDS = ["setup", "start", "stop", "restart", "status", "url", "doctor", "folders", "passcode", "desktop", "help"];
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 export const LOG_PATH = join(dirname(CONFIG_PATH), "connect-pi-runtime", "bridge.log");
 
+function controlRequest(cfg, command, options = {}) {
+	return fetch(`http://127.0.0.1:${controlPort(cfg)}/api/local/${command}`, {
+		...options, redirect: "error",
+		headers: { "x-connect-pi-token": cfg.agentToken, ...options.headers },
+		signal: AbortSignal.timeout(6500),
+	});
+}
+
 export async function localStatus(cfg = loadConfig()) {
 	if (!cfg) return null;
 	let response;
 	try {
-		response = await fetch(`http://127.0.0.1:${cfg.port}/api/local/status`, {
-			headers: { "x-connect-pi-token": cfg.agentToken }, signal: AbortSignal.timeout(1500),
-		});
+		response = await controlRequest(cfg, "status");
 	} catch (error) {
 		if (error.cause?.code === "ECONNREFUSED") return null;
 		throw new Error("Cannot check the bridge. Its port may be busy or it may still be starting.");
 	}
-	if (!response.ok) throw new Error("This port is occupied by an older bridge or another service. Close the old connect-pi window before starting.");
+	if (!response.ok) throw new Error("The local control port is occupied. Close an older Connect Pi instance or choose another port.");
 	const data = await response.json();
 	if (data.service !== "connect-pi") throw new Error("This port belongs to another service.");
 	return data;
@@ -38,19 +44,16 @@ export async function startBridge() {
 	if (existing) return existing;
 	if (!detectPi().ok) throw new Error("pi was not found. Install pi on this PC, or set PI_CLI to its cli.js path.");
 	mkdirSync(dirname(LOG_PATH), { recursive: true });
-	const fd = openSync(LOG_PATH, "a");
-	let child;
-	try {
-		child = spawn(process.execPath, [join(PACKAGE_ROOT, "server", "index.js")], {
-			cwd: PACKAGE_ROOT, env: { ...process.env, CONNECT_PI_CONFIG: CONFIG_PATH, CONNECT_PI_PORT: String(cfg.port) },
-			detached: true, windowsHide: true, stdio: ["ignore", fd, fd],
-		});
-	} finally { closeSync(fd); }
+	const child = spawn(process.execPath, [join(PACKAGE_ROOT, "server", "index.js")], {
+		cwd: PACKAGE_ROOT,
+		env: { ...process.env, CONNECT_PI_CONFIG: CONFIG_PATH, CONNECT_PI_PORT: String(cfg.port), CONNECT_PI_LOG: LOG_PATH },
+		detached: true, windowsHide: true, stdio: "ignore",
+	});
 	let failed = null;
 	child.on("error", (error) => { failed = error; });
 	child.unref();
 	for (let attempt = 0; attempt < 120; attempt++) {
-		if (failed || child.exitCode !== null) throw new Error(`Bridge could not start. See ${LOG_PATH}`);
+		if (failed || child.exitCode !== null || child.signalCode !== null) throw new Error(`Bridge could not start. See ${LOG_PATH}`);
 		await sleep(250);
 		try { const status = await localStatus(cfg); if (status) return status; }
 		catch { /* startup may be configuring Tailscale before serving HTTP */ }
@@ -61,9 +64,7 @@ export async function startBridge() {
 export async function stopBridge() {
 	const cfg = loadConfig();
 	if (!await localStatus(cfg)) return false;
-	const response = await fetch(`http://127.0.0.1:${cfg.port}/api/local/stop`, {
-		method: "POST", headers: { "x-connect-pi-token": cfg.agentToken }, signal: AbortSignal.timeout(5000),
-	});
+	const response = await controlRequest(cfg, "stop", { method: "POST" });
 	if (!response.ok) throw new Error("The bridge refused the stop request.");
 	for (let i = 0; i < 80; i++) {
 		await sleep(250);
@@ -71,6 +72,30 @@ export async function stopBridge() {
 		catch { /* Tailscale cleanup can temporarily block the event loop. */ }
 	}
 	throw new Error("Shutdown is still in progress. Run /phone status again.");
+}
+
+export async function runForeground() {
+	const cfg = loadConfig();
+	if (!cfg || !hasPasscode(cfg)) throw new Error("Run /phone setup or npm run setup first.");
+	const existing = await localStatus(cfg);
+	if (existing) {
+		console.log(connectionText(existing));
+		return;
+	}
+	await import("./index.js");
+}
+
+export async function rotatePasscode(passcode) {
+	if (!validPasscode(passcode)) throw new Error("Use exactly 6 digits.");
+	const cfg = ensureConfig();
+	if (!await localStatus(cfg)) {
+		setPasscode(ensureConfig(), passcode);
+		return;
+	}
+	const response = await controlRequest(cfg, "passcode", {
+		method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ passcode }),
+	});
+	if (!(response.ok && (await response.json()).rotated)) throw new Error("The running bridge did not confirm the passcode change.");
 }
 
 export async function validateFolder(value) {
@@ -87,7 +112,7 @@ function interactive(ctx) {
 async function choosePasscode(ctx) {
 	const first = await ctx.ui.input("Choose a 6-digit phone passcode (not sent to the model)");
 	if (first === undefined) return null;
-	if (!/^\d{6}$/.test(first)) throw new Error("Use exactly 6 digits. Passcode unchanged.");
+	if (!validPasscode(first)) throw new Error("Use exactly 6 digits. Passcode unchanged.");
 	const second = await ctx.ui.input("Enter the same passcode again");
 	if (second === undefined) return null;
 	if (first !== second) throw new Error("The passcodes did not match. Passcode unchanged.");
@@ -158,7 +183,6 @@ export async function handlePhoneCommand(args, ctx) {
 		if (!paused) return;
 		const cfg = ensureConfig();
 		cfg.roots = [folder];
-		cfg.allowLan = false;
 		if (pin) setPasscode(cfg, pin); else saveConfig(cfg);
 		// Direct/local installs need a forwarding extension for phone-launched
 		// sessions too. Managed Pi package installs already load it globally.
@@ -168,22 +192,28 @@ export async function handlePhoneCommand(args, ctx) {
 		if (startNow) return notify(ctx, connectionText(await startBridge()));
 		return notify(ctx, "Ready. Use /phone start when you want to connect your phone.");
 	}
-	if (command === "folders" || command === "passcode") {
+	if (command === "passcode") {
 		interactive(ctx);
 		if (!loadConfig()) throw new Error("Run /phone setup first.");
-		let folder, pin;
-		if (command === "folders") {
-			const value = await ctx.ui.input("Folder your phone should browse", loadConfig().roots[0]);
-			if (value === undefined) return;
-			folder = await validateFolder(value.trim());
-		} else { pin = await choosePasscode(ctx); if (pin === null) return; }
+		const pin = await choosePasscode(ctx);
+		if (pin === null) return;
+		if (await localStatus() && !await ctx.ui.confirm("Change phone passcode?", "Phones will be signed out. Pi sessions will keep running.")) return;
+		await rotatePasscode(pin);
+		return notify(ctx, "Passcode changed. Phones must unlock again.");
+	}
+	if (command === "folders") {
+		interactive(ctx);
+		if (!loadConfig()) throw new Error("Run /phone setup first.");
+		const value = await ctx.ui.input("Folders available on your phone", loadConfig().roots[0]);
+		if (value === undefined) return;
+		const folder = await validateFolder(value.trim());
 		const paused = await pauseForSettings(ctx);
 		if (!paused) return;
 		const cfg = ensureConfig();
-		if (folder) { cfg.roots = [folder]; saveConfig(cfg); }
-		else setPasscode(cfg, pin);
+		cfg.roots = [folder];
+		saveConfig(cfg);
 		if (paused.wasRunning) await startBridge();
-		return notify(ctx, folder ? `Folder saved: ${folder}` : "Passcode changed. Phones must sign in again.");
+		return notify(ctx, `Folder saved: ${folder}`);
 	}
 	if (command === "desktop") {
 		if (process.platform !== "win32") throw new Error("Desktop shortcuts are Windows-only. Use /phone start instead.");
@@ -202,7 +232,7 @@ export async function handlePhoneCommand(args, ctx) {
 		return notify(ctx, [
 			`Node: ${process.version}`, `pi: ${pi.ok ? "found" : "NOT FOUND"}`, `Platform: ${process.platform} (Windows is the supported desktop setup)`,
 			`Passcode: ${cfg && hasPasscode(cfg) ? "set" : "NOT SET — /phone setup"}`, `Folders: ${cfg?.roots?.join(", ") || "not set"}`,
-			`Bridge: ${statusError || (status ? "running" : "stopped")}`, `Tailscale: ${tailscaleUrl() || "not connected — install/sign in on PC and phone"}`,
+			`Bridge: ${statusError || (status ? "running" : "stopped")}`, `Tailscale: ${status?.url || status?.problem || (() => { const result = tailscaleStatus(); return result.url || result.problem; })()}`,
 			`Settings: ${CONFIG_PATH}`, `Logs: ${LOG_PATH}`,
 		].join("\n"));
 	}
@@ -210,5 +240,6 @@ export async function handlePhoneCommand(args, ctx) {
 }
 
 export function connectionText(status) {
-	return `Phone connection running on port ${status.port}.\n${status.url ? `Open on your phone: ${status.url}` : "No Tailscale HTTPS address yet. Connect Tailscale on both devices and complete its HTTPS/Serve approval, then /phone restart."}\nLocal PC preview: http://127.0.0.1:${status.port}\nStop with /phone stop. Closing pi does not stop a background bridge.`;
+	const remote = status.url ? `Open on your phone: ${status.url}` : `${status.problem || "No verified Tailscale HTTPS rule."} Use /phone doctor after checking Tailscale.`;
+	return `Phone connection running on port ${status.port}.\n${remote}\nLocal PC preview: http://localhost:${status.port}\nStop with /phone stop.`;
 }

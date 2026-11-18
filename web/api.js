@@ -1,30 +1,4 @@
-// Talking to the bridge: login, the REST calls, and the live socket.
-//
-// The login token lives in localStorage. The bridge expires it after 60 idle
-// minutes, so every call can come back 401 — when it does we fire onLocked and
-// the app drops to the lock screen. Nothing here retries a 401.
-
-const TOKEN_KEY = "connect-pi.token";
-
-export const token = {
-	get: () => {
-		try {
-			return localStorage.getItem(TOKEN_KEY) || "";
-		} catch {
-			return "";
-		}
-	},
-	set: (v) => {
-		try {
-			localStorage.setItem(TOKEN_KEY, v);
-		} catch {}
-	},
-	clear: () => {
-		try {
-			localStorage.removeItem(TOKEN_KEY);
-		} catch {}
-	},
-};
+// Same-origin API and WebSocket. The browser holds the HttpOnly session cookie.
 
 let onLocked = () => {};
 export const setLockHandler = (fn) => {
@@ -39,13 +13,11 @@ class HttpError extends Error {
 }
 
 async function call(path, { method = "GET", body, auth = true } = {}) {
-	const headers = {};
-	if (body !== undefined) headers["content-type"] = "application/json";
-	if (auth) headers.authorization = `Bearer ${token.get()}`;
+	const headers = body === undefined ? {} : { "content-type": "application/json" };
 
 	let res;
 	try {
-		res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+		res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(12_000) });
 	} catch {
 		throw new HttpError("Cannot reach your PC. Is it awake, and is the bridge running?", 0);
 	}
@@ -59,7 +31,6 @@ async function call(path, { method = "GET", body, auth = true } = {}) {
 	}
 
 	if (res.status === 401 && auth) {
-		token.clear();
 		onLocked();
 	}
 	if (!res.ok) throw new HttpError(data.error || `Request failed (${res.status})`, res.status);
@@ -68,16 +39,26 @@ async function call(path, { method = "GET", body, auth = true } = {}) {
 
 export const api = {
 	authState: () => call("/api/auth/state", { auth: false }),
-	me: () => call("/api/me"),
+	me: (auth = true) => call("/api/me", { auth }),
+	lock: () => call("/api/auth/lock", { method: "POST", body: {}, auth: false }),
+	devices: () => call("/api/devices"),
+	removeDevice: (kind, id) => call("/api/devices/remove", { method: "POST", body: { kind, id } }),
 	loginPasscode: (passcode) => call("/api/auth/passcode", { method: "POST", body: { passcode }, auth: false }),
 	roots: () => call("/api/folders"),
 	folders: (path) => call(`/api/folders?path=${encodeURIComponent(path)}`),
 	createFolder: (parent, name) => call("/api/folders/create", { method: "POST", body: { parent, name } }),
 	history: () => call("/api/history"),
+	transcript: (id, before, search) => {
+		const query = new URLSearchParams({ id, search });
+		if (before != null) query.set("before", before);
+		return call(`/api/history/transcript?${query}`);
+	},
 	startSession: (folder) => call("/api/sessions", { method: "POST", body: { folder } }),
 	resumeSession: (resumeId) => call("/api/sessions", { method: "POST", body: { resumeId } }),
 	stopSession: (id) => call("/api/sessions/stop", { method: "POST", body: { id } }),
-	openInWarp: (folder) => call("/api/open-in-warp", { method: "POST", body: { folder } }),
+	sessionStatus: (id) => call(`/api/sessions/status?id=${encodeURIComponent(id)}`),
+	openInWarp: (selection) => call("/api/open-in-warp", { method: "POST", body: selection }),
+	changes: (agentId) => call("/api/changes", { method: "POST", body: { agentId } }),
 	passkeyRegisterOptions: () => call("/api/auth/passkey/register/options", { method: "POST", body: {} }),
 	passkeyRegisterVerify: (response, label) =>
 		call("/api/auth/passkey/register/verify", { method: "POST", body: { response, label } }),
@@ -159,8 +140,7 @@ export async function loginWithPasskey() {
 			};
 	const cred = await navigator.credentials.get({ publicKey });
 	if (!cred) throw new Error("Fingerprint check was cancelled.");
-	const { token: t } = await api.passkeyLoginVerify(serialize(cred));
-	return t;
+	return api.passkeyLoginVerify(serialize(cred));
 }
 
 // ---------------------------------------------------------------- socket
@@ -184,7 +164,7 @@ export class Bridge {
 		const proto = location.protocol === "https:" ? "wss" : "ws";
 		let ws;
 		try {
-			ws = new WebSocket(`${proto}://${location.host}/app?token=${encodeURIComponent(token.get())}`);
+			ws = new WebSocket(`${proto}://${location.host}/app`);
 		} catch {
 			return this.retry();
 		}
@@ -206,6 +186,7 @@ export class Bridge {
 			this.handlers.onMessage?.(msg);
 		};
 		ws.onclose = () => {
+			if (this.ws !== ws || this.closed) return;
 			this.ws = null;
 			this.handlers.onClose?.();
 			// A socket that never opened was turned away at the door, which almost
@@ -226,15 +207,16 @@ export class Bridge {
 		this.tries = Math.min(this.tries + 1, 6);
 		this.timer = setTimeout(() => {
 			this.timer = null;
-			if (!token.get()) return;
-			this.connect();
+			if (!this.closed) this.connect();
 		}, Math.min(15000, 700 * 2 ** this.tries));
 	}
 
 	send(obj) {
 		if (this.ws && this.ws.readyState === 1) {
-			this.ws.send(JSON.stringify(obj));
-			return true;
+			try {
+				this.ws.send(JSON.stringify(obj));
+				return true;
+			} catch { return false; }
 		}
 		return false;
 	}

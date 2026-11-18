@@ -1,81 +1,70 @@
-// Tailscale is the only way in, so the bridge owns the door.
-//
-// `tailscale serve` is what points the machine's https name at this process.
-// Turning it on when the bridge starts and off again when it stops is what
-// makes "no window means nothing is listening" literally true, rather than
-// leaving an https address that answers with an error.
-
-import { execFileSync, spawnSync } from "node:child_process";
+// Manage only the private HTTPS root that this bridge adds.
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 
-const CANDIDATES = ["tailscale", "C:\\Program Files\\Tailscale\\tailscale.exe"];
+const windowsCli = "C:\\Program Files\\Tailscale\\tailscale.exe";
+const command = () => process.platform === "win32" && existsSync(windowsCli) ? windowsCli : "tailscale";
+const run = (args) => execFileSync(command(), args, {
+	encoding: "utf8", windowsHide: true, timeout: 5000, stdio: ["ignore", "pipe", "pipe"],
+});
 
-function cli() {
-	for (const c of CANDIDATES) {
-		if (c.includes("\\")) {
-			if (existsSync(c)) return c;
-			continue;
-		}
-		// bare name: only usable if it is really on PATH
-		const probe = spawnSync(c, ["version"], { encoding: "utf8", windowsHide: true });
-		if (!probe.error) return c;
+const errorText = (error) => String(error.stderr || error.message).trim().slice(0, 800);
+const privateHttps = ["serve", "--bg", "--https=443", "--set-path=/"];
+
+function identity(exec) {
+	const status = JSON.parse(exec(["status", "--json"]));
+	const name = status.Self?.DNSName?.replace(/\.$/, "").toLowerCase();
+	if (status.BackendState !== "Running" || !name) {
+		throw new Error("Tailscale is installed but disconnected. Sign in on this PC and switch it on.");
 	}
-	return null;
+	if (!/^[a-z0-9.-]+\.ts\.net$/.test(name)) throw new Error("This device has no Tailscale HTTPS name. Enable MagicDNS and HTTPS for your tailnet.");
+	return { name, url: `https://${name}` };
 }
 
-const run = (exe, args) => execFileSync(exe, args, { encoding: "utf8", windowsHide: true, timeout: 15000 });
-
-/** This machine's https name on the tailnet, or null if Tailscale is not up. */
-export function tailscaleUrl() {
-	const exe = cli();
-	if (!exe) return null;
-	try {
-		const status = JSON.parse(run(exe, ["status", "--json"]));
-		if (status.BackendState !== "Running") return null;
-		const name = status.Self?.DNSName;
-		return name ? `https://${name.replace(/\.$/, "")}` : null;
-	} catch {
-		return null;
+export function tailscaleStatus(exec = run) {
+	try { return { url: identity(exec).url, problem: null }; }
+	catch (error) {
+		return { url: null, problem: error.code === "ENOENT" ? "Tailscale was not found. Install it on this PC." : errorText(error) };
 	}
 }
 
-// Only the process that opened the door is allowed to close it. Without this, a
-// second bridge that fails to bind the port still runs its exit handler on the
-// way out and shuts off the serve belonging to the one that is actually
-// running - which is exactly what happened the first time this was tested.
-let weOpenedIt = false;
-
-/** Point the tailnet https name at this port. Returns the url, or null. */
-export function serveOn(port) {
-	const exe = cli();
-	if (!exe) return null;
-	try {
-		const current = run(exe, ["serve", "status"]);
-		if (!current.includes(`127.0.0.1:${port}`)) run(exe, ["serve", "--bg", String(port)]);
-		weOpenedIt = true;
-		return tailscaleUrl();
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Close the door. Synchronous on purpose: this runs from process exit handlers,
- * where a promise would never be given the chance to settle.
- */
-export function serveOff() {
-	if (!weOpenedIt) return false;
-	const exe = cli();
-	if (!exe) return false;
-	try {
-		run(exe, ["serve", "--bg", "off"]);
-		return true;
-	} catch {
-		try {
-			run(exe, ["serve", "reset"]);
-			return true;
-		} catch {
-			return false;
-		}
-	}
+// An injected runner keeps policy tests independent of the user's tailnet.
+export function createServe(exec = run) {
+	let owned = null;
+	const config = () => JSON.parse(exec(["serve", "status", "--json"]));
+	const current = (state, host) => state?.Web?.[host]?.Handlers?.["/"];
+	const privateRule = (state, host, target) =>
+		!state?.AllowFunnel?.[host] && current(state, host)?.Proxy === target && state?.TCP?.["443"]?.HTTPS;
+	return {
+		start(port) {
+			const status = tailscaleStatus(exec);
+			if (!status.url) return status;
+			const host = `${new URL(status.url).hostname}:443`;
+			const target = `http://127.0.0.1:${port}`;
+			try {
+				const state = config();
+				if (privateRule(state, host, target)) return status; // borrowed, never cleaned up
+				if (state?.AllowFunnel?.[host] || current(state, host) ||
+					(state?.TCP?.["443"] && !state.TCP["443"].HTTPS)) {
+					return { url: null, problem: "Tailscale port 443 already has a conflicting Serve or Funnel rule. It was left in place." };
+				}
+				exec([...privateHttps, target]);
+				owned = { host, target };
+				if (!privateRule(config(), host, target)) return { url: null, problem: "Could not verify the private HTTPS rule. Check Tailscale Serve status." };
+				return status;
+			} catch (error) {
+				return { url: null, problem: errorText(error) };
+			}
+		},
+		stop() {
+			if (!owned) return false;
+			const { host, target } = owned;
+			owned = null;
+			try {
+				if (!privateRule(config(), host, target)) return false;
+				exec([...privateHttps, "off"]);
+				return true;
+			} catch { return false; }
+		},
+	};
 }

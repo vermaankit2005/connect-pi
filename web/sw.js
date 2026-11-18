@@ -1,12 +1,14 @@
 // Minimal service worker: it exists so the app is installable and the shell
 // loads instantly. Everything real happens over the websocket, so there is no
 // offline data to cache.
-const SHELL = "cpi-shell-v13";
+const SHELL = "cpi-shell-v14";
 const FILES = [
 	"/",
 	"/index.html",
 	"/styles.css",
 	"/app.js",
+	"/theme-init.js",
+	"/vendor/markdown-it.js",
 	"/projects.js",
 	"/fonts/roboto-400.ttf",
 	"/fonts/roboto-500.ttf",
@@ -24,21 +26,14 @@ self.addEventListener("install", (e) => {
 
 self.addEventListener("activate", (e) => {
 	e.waitUntil(
-		caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== SHELL).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
+		caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith("cpi-shell-") && k !== SHELL).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
 	);
 });
 
 self.addEventListener("fetch", (e) => {
 	const url = new URL(e.request.url);
-	if (e.request.method !== "GET" || url.pathname.startsWith("/api/")) return;
-	// network first, fall back to the cached shell when the desktop is asleep
+	if (e.request.method !== "GET" || url.origin !== self.location.origin || !FILES.includes(url.pathname)) return;
 	e.respondWith(
-		fetch(e.request)
-			.then((res) => {
-				const copy = res.clone();
-				caches.open(SHELL).then((c) => c.put(e.request, copy)).catch(() => {});
-				return res;
-			})
-			.catch(() => caches.match(e.request).then((r) => r || caches.match("/index.html"))),
+		fetch(e.request).catch(async () => (await caches.match(url.pathname)) || Response.error()),
 	);
 });

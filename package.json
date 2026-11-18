@@ -5,7 +5,7 @@
   "description": "Control your desktop pi coding agent from your phone.",
   "type": "module",
   "scripts": {
-    "start": "node server/index.js",
+    "start": "node scripts/phone.mjs foreground",
     "test": "node --test server/*.test.js web/*.test.js",
     "preview:ui": "node scripts/ui-preview.mjs",
     "smoke": "node scripts/smoke-test.mjs",
@@ -20,10 +20,12 @@
     "autostart": "powershell -ExecutionPolicy Bypass -File scripts/install-autostart.ps1",
     "autostart:remove": "powershell -ExecutionPolicy Bypass -File scripts/install-autostart.ps1 -Remove",
     "phone": "node scripts/phone.mjs",
-    "smoke:package": "node scripts/package-smoke.mjs"
+    "smoke:package": "node scripts/package-smoke.mjs",
+    "test:ui": "node --test scripts/ui.test.mjs"
   },
   "dependencies": {
     "@simplewebauthn/server": "^13.3.3",
+    "markdown-it": "^14.3.3",
     "ws": "^8.18.0"
   },
   "engines": {
@@ -60,5 +62,8 @@
     "docs/",
     "README.md",
     "CHANGELOG.md"
-  ]
+  ],
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
 }

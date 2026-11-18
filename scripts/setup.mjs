@@ -1,11 +1,10 @@
 // One-shot setup: passcode, extension, icons, and a printout of what to do next.
 
 import { execFileSync } from "node:child_process";
-import { networkInterfaces } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { validateFolder } from "../server/phone-control.js";
+import { localStatus, validateFolder } from "../server/phone-control.js";
 import { existsSync } from "node:fs";
 import { CONFIG_PATH, ensureConfig, hasPasscode, setPasscode, saveConfig } from "../server/config.js";
 
@@ -14,6 +13,7 @@ const run = (file) => execFileSync(process.execPath, [join(here, file)], { stdio
 
 console.log("\n  connect-pi setup\n  ================\n");
 
+if (await localStatus()) throw new Error("Stop Connect Pi with /phone stop before running manual setup.");
 const cfg = ensureConfig();
 
 if (!hasPasscode(cfg)) {
@@ -43,16 +43,5 @@ saveConfig(cfg);
 run("make-icons.mjs");
 run("install-extension.mjs");
 
-const tailscaleIp = Object.values(networkInterfaces())
-	.flat()
-	.find((ni) => ni && ni.family === "IPv4" && !ni.internal && ni.address.startsWith("100."))?.address;
-
-console.log("\n  Done. Next:\n");
-console.log("   1. Start the bridge:      npm start");
-console.log("   2. Open pi in a project:  pi");
-console.log("   3. On your phone, open:   " + (tailscaleIp ? `http://${tailscaleIp}:${cfg.port}` : "(see the address printed by npm start)"));
-if (!tailscaleIp) {
-	console.log("\n  Tailscale is not running yet. Install it on this PC and your phone,");
-	console.log("  sign into both with the same account, then re-run this to get the address.");
-}
+console.log("\n  Start with npm start, then open the Tailscale HTTPS URL it prints.\n");
 console.log("\n  Config lives at " + CONFIG_PATH + "\n");

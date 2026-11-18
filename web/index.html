@@ -6,24 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
 <meta name="theme-color" content="#000000" id="themeColor" />
 <meta name="color-scheme" content="dark light" />
-<script>
-// Runs before the first paint, on purpose: reading the saved theme in app.js
-// would show a flash of the wrong colour on every launch. "system" writes no
-// attribute at all and lets the CSS media query decide.
-(function () {
-	try {
-		var size = Number(localStorage.getItem("connect-pi.textSize"));
-        var version = localStorage.getItem("connect-pi.scaleVersion");
-        var sizes = [13.44, 14.4, 15.36, 16.32, 17.28];
-        var previous = version === "3" ? [13.16, 14.1, 15.04, 15.98, 16.92] : version === "2" ? [12.5, 13.5, 14.5, 15.5, 16.5] : [14, 15, 16, 17, 18];
-        var index = previous.indexOf(size);
-        if (version !== "4" && index !== -1) size = sizes[index];
-        if (sizes.indexOf(size) !== -1) document.documentElement.style.fontSize = size + "px";
-        var t = localStorage.getItem("connect-pi.theme");
-		if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
-	} catch (e) {}
-})();
-</script>
+<script src="/theme-init.js"></script>
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black" />
 <link rel="manifest" href="/manifest.webmanifest" />
@@ -93,7 +76,7 @@
     <ol class="offline-steps">
       <li><span class="n">1</span><span>Open <b>Tailscale</b> on this phone and switch it on</span></li>
       <li><span class="n">2</span><span>Make sure the PC is awake</span></li>
-      <li><span class="n">3</span><span>Click <b>Start pi on phone</b> on the PC desktop</span></li>
+      <li><span class="n">3</span><span>Run <b>/phone start</b> in Pi on the PC</span></li>
     </ol>
 
     <button class="btn-primary offline-retry" id="offlineRetry">
@@ -114,7 +97,7 @@
 
     <button class="finger-btn hidden" id="fingerBtn" type="button">
       <svg class="ic ic-28"><use href="#i-finger"/></svg>
-      <span>Unlock with fingerprint</span>
+      <span>Use a passkey</span>
     </button>
 
     <div class="pin hidden" id="pinArea">
@@ -122,7 +105,7 @@
       <div class="keypad" id="keypad"></div>
     </div>
 
-    <div class="lock-error" id="lockError"></div>
+    <div class="lock-error" id="lockError" role="status"></div>
     <button class="link-btn hidden" id="usePasscode" type="button">Use passcode instead</button>
   </div>
 </section>
@@ -132,7 +115,7 @@
   <header class="topbar">
     <button class="icon-circle" id="btnMenu" aria-label="Sessions" aria-expanded="false" aria-controls="drawer"><svg class="ic"><use href="#i-menu"/></svg></button>
     <button class="title-chip" id="btnTitle">
-      <span id="topTitle">pi</span>
+      <span class="title-text"><span id="topTitle">Pi</span><small id="topStatus" aria-live="polite"></small></span>
       <svg class="ic ic-16"><use href="#i-caret"/></svg>
     </button>
     <div class="icon-pill">
@@ -141,22 +124,30 @@
     </div>
   </header>
 
-  <div class="conn-banner hidden" id="connBanner">
+  <div class="conn-banner hidden" id="connBanner" role="status">
     <span class="conn-pulse"></span><span>Reconnecting to your PC</span>
   </div>
 
   <div class="thread" id="thread">
     <div id="messages"></div>
+    <div id="pendingMessages"></div>
     <div class="thread-tail"></div>
   </div>
 
   <button class="jump hidden" id="btnJump" aria-label="Scroll to bottom"><svg class="ic"><use href="#i-down"/></svg></button>
 
   <div class="composer">
+    <div class="compose-meta hidden" id="composeMeta">
+      <button id="attachmentChip" class="draft-attachment hidden" type="button"></button>
+      <label id="deliveryMode" class="hidden">Follow-up
+        <select id="delivery"><option value="steer">Steer now</option><option value="followUp">After this run</option></select>
+      </label>
+    </div>
     <div class="composer-box">
       <button class="round-ghost" id="btnPlus" aria-label="More actions" aria-expanded="false"><svg class="ic"><use href="#i-plus"/></svg></button>
       <textarea id="input" rows="1" aria-label="Message" placeholder="Message pi" enterkeyhint="enter" autocomplete="off" autocapitalize="sentences"></textarea>
       <button class="round-ghost hidden" id="btnMic" aria-label="Dictate message"><svg class="ic"><use href="#i-mic"/></svg></button>
+      <button class="round-send stop-run hidden" id="btnStop" aria-label="Stop run" type="button"><svg class="ic"><use href="#i-stop"/></svg></button>
       <button class="round-send" id="btnSend" aria-label="Send"><svg class="ic"><use href="#i-up"/></svg></button>
     </div>
   </div>
@@ -175,18 +166,15 @@
     <input id="drawerSearch" placeholder="Search chats and projects" aria-label="Search chats and projects" autocomplete="off" />
   </div>
   <nav class="drawer-nav" aria-label="Navigation">
-    <button class="drawer-row" id="drawerCompose"><svg class="ic"><use href="#i-compose"/></svg><span>New chat</span></button>
     <button class="drawer-row" id="drawerLibrary" aria-label="All chats"><svg class="ic"><use href="#i-library"/></svg><span>Library</span></button>
-    <button class="drawer-row" id="drawerCustomize"><svg class="ic"><use href="#i-customize"/></svg><span>Customize</span></button>
     <button class="drawer-row" id="drawerProjects"><svg class="ic"><use href="#i-folder"/></svg><span>Projects</span><svg class="ic ic-16 nav-chevron"><use href="#i-chevron"/></svg></button>
     <button class="drawer-row" id="drawerRunning"><svg class="ic"><use href="#i-terminal"/></svg><span>Running now</span></button>
-    <button class="drawer-row" id="drawerBrowse"><svg class="ic"><use href="#i-newfolder"/></svg><span>Browse folders</span></button>
   </nav>
   <div class="drawer-list" id="drawerList"></div>
   </div>
   <div class="drawer-bottom">
-    <button class="drawer-chat" id="drawerNew"><svg class="ic"><use href="#i-compose"/></svg><span>Chat</span></button>
-    <button class="drawer-account" id="drawerSettings" aria-label="Settings"><span class="avatar">AV</span></button>
+    <button class="drawer-chat" id="drawerNew"><svg class="ic"><use href="#i-compose"/></svg><span>New chat</span></button>
+    <button class="drawer-account" id="drawerSettings" aria-label="Settings"><svg class="ic"><use href="#i-customize"/></svg></button>
   </div>
 </aside>
 
@@ -214,15 +202,35 @@
 <!-- ------------------------------------------------------------ overlays -->
 <div class="sheet-wrap hidden" id="sheetWrap">
   <div class="sheet-scrim" id="sheetScrim"></div>
-  <div class="sheet" id="sheet"></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Options" tabindex="-1"></div>
 </div>
 
 <div class="dialog-wrap hidden" id="dialogWrap">
-  <div class="dialog" id="dialog"></div>
+  <div class="dialog" id="dialog" role="dialog" aria-modal="true" tabindex="-1"></div>
 </div>
 
-<div class="toast hidden" id="toast"></div>
+<section id="transcript" class="screen hidden" aria-label="Saved conversation">
+  <header class="topbar topbar-plain">
+    <button class="icon-circle" id="transcriptBack" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button>
+    <div class="pick-head">
+      <div class="pick-title" id="transcriptTitle"></div>
+      <div class="pick-path">Saved conversation</div>
+    </div>
+  </header>
+  <form class="transcript-tools" id="transcriptSearch">
+    <input type="search" id="transcriptQuery" aria-label="Search this conversation" placeholder="Search this conversation">
+    <button type="submit" class="btn-ghost">Search</button>
+  </form>
+  <div class="thread history-thread">
+    <button type="button" id="transcriptMore" class="btn-ghost hidden">Load older messages</button>
+    <div id="transcriptStatus" role="status"></div>
+    <div id="transcriptMessages"></div>
+  </div>
+</section>
 
+<div class="toast hidden" id="toast" role="status"></div>
+
+<script src="/vendor/markdown-it.js"></script>
 <script type="module" src="/app.js"></script>
 </body>
 </html>

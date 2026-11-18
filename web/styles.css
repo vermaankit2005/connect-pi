@@ -1764,7 +1764,6 @@ button {
 }
 
 /* Reference mobile layout: 46px header controls, 50px composer, 80% drawer. */
-#chat.has-conversation .title-chip { visibility: hidden; }
 #btnPlus .ic { width: 1.75rem; height: 1.75rem; }
 #btnMic.listening { color: var(--accent); background: var(--surface-3); }
 button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
@@ -1825,3 +1824,24 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 #chat .topbar { align-items: flex-start; padding-top: calc(var(--safe-top) + .6rem); }
 .msg-user { margin-bottom: 1.4375rem; }
 .drawer-row { gap: .8125rem; }
+
+.title-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.title-text > span, .title-text small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title-text small { color: var(--text-dim); font-size: .75rem; font-weight: 400; }
+.title-text small:empty { display: none; }
+.compose-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: 0 .5rem .5rem; font-size: .8125rem; color: var(--text-dim); }
+.compose-meta select, .draft-attachment { background: var(--surface-1); color: var(--text); border: 1px solid var(--control-border); border-radius: .5rem; min-height: 2rem; padding: .25rem .5rem; }
+.draft-attachment { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.round-send:disabled { opacity: .5; cursor: default; }
+.stop-run { background: var(--surface-3); color: var(--text); }
+.message-delivery, .attachment-label { color: inherit; opacity: .8; font-size: .75rem; margin-top: .3rem; }
+.delivery-action { text-decoration: underline; margin-top: .2rem; }
+.history-thread .msg { margin-bottom: 1rem; }
+.transcript-tools { display: flex; gap: .5rem; padding: .5rem var(--gutter); }
+.transcript-tools input { flex: 1; min-width: 0; border: 1px solid var(--control-border); border-radius: .5rem; padding: .5rem; background: var(--surface-2); color: var(--text); }
+#transcriptStatus:not(:empty) { color: var(--text-dim); padding: .5rem 0; }
+.tool-output pre, .diff { overflow: auto; white-space: pre; max-height: min(45vh, 25rem); font: .8rem/1.5 monospace; }
+.diff { background: var(--surface-2); border: 1px solid var(--control-border); border-radius: .5rem; padding: .65rem; }
+.diff-status { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg-ai table, .prose table { display: block; border-collapse: collapse; overflow-x: auto; max-width: 100%; margin-bottom: .75rem; }
+.msg-ai th, .msg-ai td, .prose th, .prose td { padding: .375rem .625rem; border: 1px solid var(--control-border); text-align: left; }
