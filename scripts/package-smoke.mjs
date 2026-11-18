@@ -29,10 +29,10 @@ try {
 	const installed = spawnSync(process.execPath, manual ? [resolve("scripts/install-extension.mjs")] : [pi.cli, "install", source], { env, cwd: project, encoding: "utf8", timeout: 120000, windowsHide: true });
 	assert.equal(installed.status, 0, installed.stderr || installed.stdout);
 	console.log("Package installed into an isolated pi profile.");
-	const probe = net.createServer();
-	await new Promise((done) => probe.listen(0, "127.0.0.1", done));
-	const port = probe.address().port;
-	await new Promise((done) => probe.close(done));
+	const probes = [net.createServer(), net.createServer()];
+	for (const probe of probes) await new Promise((done) => probe.listen(0, "127.0.0.1", done));
+	const [port, localPort] = probes.map((probe) => probe.address().port);
+	await Promise.all(probes.map((probe) => new Promise((done) => probe.close(done))));
 	child = spawn(process.execPath, [pi.cli, "--mode", "rpc", "--no-session"], { env, cwd: project, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
 	child.stderr.on("data", (buf) => { stderr += buf; });
 	let buffer = "";
@@ -64,7 +64,7 @@ try {
 	assert.deepEqual(cfg.roots, [project]);
 	assert(cfg.passcode.hash && !JSON.stringify(cfg).includes("123456"));
 	assert(!notices.some((n) => n.notifyType === "error"), JSON.stringify(notices));
-	cfg.port = port;
+	Object.assign(cfg, { port, controlPort: localPort });
 	await writeFile(configFile, JSON.stringify(cfg));
 	await rpc("prompt", { message: "/phone start" });
 	assert(notices.some((n) => n.message.includes("Phone connection running")));

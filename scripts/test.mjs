@@ -13,7 +13,7 @@ process.stdout.write(result.stdout || "");
 process.stderr.write(result.stderr || "");
 if (result.error) console.error(result.error.message);
 if (result.status !== 0 && process.env.GITHUB_ACTIONS === "true") {
-	const report = (result.stderr || result.stdout || result.error?.message || "Node test runner failed.").slice(-2000);
+	const report = ([result.stderr, result.stdout].filter(Boolean).join("\n") || result.error?.message || "Node test runner failed.").slice(-10000);
 	const escaped = report.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
 	console.log(`::error title=Node test failure::${escaped}`);
 }

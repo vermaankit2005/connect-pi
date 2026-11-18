@@ -58,11 +58,16 @@ test("phone setup, settings and controlled bridge lifecycle", async (t) => {
 		await assert.rejects(control.validateFolder(config.CONFIG_PATH), /not a file/);
 	});
 	await t.test("start is idempotent; control endpoints reject unauthenticated requests", async () => {
-		const probe = net.createServer();
-		await new Promise((done) => probe.listen(0, "127.0.0.1", done));
-		const port = probe.address().port;
-		await new Promise((done) => probe.close(done));
-		const cfg = config.loadConfig(); cfg.port = port; config.saveConfig(cfg);
+		const probes = [net.createServer(), net.createServer()];
+		for (const probe of probes) {
+			probe.listen(0, "127.0.0.1");
+			await once(probe, "listening");
+		}
+		const [port, controlPort] = probes.map((probe) => probe.address().port);
+		await Promise.all(probes.map((probe) => new Promise((done) => probe.close(done))));
+		const cfg = config.loadConfig();
+		Object.assign(cfg, { port, controlPort });
+		config.saveConfig(cfg);
 		const first = await control.startBridge();
 		assert.equal(first.service, "connect-pi");
 		assert.equal((await control.startBridge()).pid, first.pid);

@@ -29,7 +29,7 @@ export async function localStatus(cfg = loadConfig()) {
 		response = await controlRequest(cfg, "status");
 	} catch (error) {
 		if (error.cause?.code === "ECONNREFUSED") return null;
-		throw new Error("Cannot check the bridge. Its port may be busy or it may still be starting.");
+		throw new Error(`Cannot reach local control on port ${controlPort(cfg)}. ${error.cause?.code || error.message}`);
 	}
 	if (!response.ok) throw new Error("The local control port is occupied. Close an older Connect Pi instance or choose another port.");
 	const data = await response.json();
@@ -53,7 +53,12 @@ export async function startBridge() {
 	child.on("error", (error) => { failed = error; });
 	child.unref();
 	for (let attempt = 0; attempt < 120; attempt++) {
-		if (failed || child.exitCode !== null || child.signalCode !== null) throw new Error(`Bridge could not start. See ${LOG_PATH}`);
+		if (failed || child.exitCode !== null || child.signalCode !== null) {
+			let detail = failed?.message || `exit ${child.exitCode ?? child.signalCode}`;
+			try { detail += "\n" + readFileSync(LOG_PATH, "utf8").trim().split(/\r?\n/).slice(-4).join("\n"); }
+			catch { /* the process may have exited before opening its log */ }
+			throw new Error(`Bridge could not start (${detail}). See ${LOG_PATH}`);
+		}
 		await sleep(250);
 		try { const status = await localStatus(cfg); if (status) return status; }
 		catch { /* startup may be configuring Tailscale before serving HTTP */ }
