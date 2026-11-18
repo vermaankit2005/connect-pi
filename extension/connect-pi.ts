@@ -413,16 +413,16 @@ export default function connectPi(pi: ExtensionAPI) {
 	// ---------------------------------------------------------- command
 
 	const command = {
-        description: "Set up and control connect-pi: setup, start, stop, restart, status, url, doctor, folders, passcode, desktop, help",
-        getArgumentCompletions: (prefix: string) => PHONE_COMMANDS.filter((name: string) => name.startsWith(prefix)).map((name: string) => ({ value: name, label: name })),
-        handler: async (args: string, ctx: any) => {
-            try {
-                await handlePhoneCommand(args, ctx);
-                cfg = readBridgeConfig();
-                if (cfg && !ws && !shuttingDown) connect();
-            } catch (error: any) { ctx.ui?.notify(error.message || String(error), "error"); }
-        },
-    };
-    pi.registerCommand("connect-pi", command);
-    pi.registerCommand("phone", command);
+		description: "Set up and control connect-pi: setup, start, stop, restart, status, url, doctor, folders, passcode, desktop, help",
+		getArgumentCompletions: (prefix: string) => PHONE_COMMANDS.filter((name: string) => name.startsWith(prefix)).map((name: string) => ({ value: name, label: name })),
+		handler: async (args: string, ctx: any) => {
+			try {
+				await handlePhoneCommand(args, ctx);
+				cfg = readBridgeConfig();
+				if (cfg && !ws && !shuttingDown) connect();
+			} catch (error: any) { ctx.ui?.notify(error.message || String(error), "error"); }
+		},
+	};
+	pi.registerCommand("connect-pi", command);
+	pi.registerCommand("phone", command);
 }

@@ -184,17 +184,17 @@ const server = http.createServer(async (req, res) => {
 
 	try {
 		// Local control uses the separate agent secret, never a phone login.
-        if (url.pathname.startsWith("/api/local/")) {
-            if (!isLoopback(ip) || req.headers["x-connect-pi-token"] !== cfg.agentToken) return json(403, { error: "Local control only" });
-            if (url.pathname === "/api/local/status" && req.method === "GET") return json(200, { service: "connect-pi", pid: process.pid, port: PORT, url: phoneUrl, roots: cfg.roots });
-            if (url.pathname === "/api/local/stop" && req.method === "POST") {
-                json(200, { stopping: true });
-                setTimeout(() => shutdown("phone command"), 100);
-                return;
-            }
-            return json(404, { error: "Unknown control command" });
-        }
-        // ---------------- open endpoints
+		if (url.pathname.startsWith("/api/local/")) {
+			if (!isLoopback(ip) || req.headers["x-connect-pi-token"] !== cfg.agentToken) return json(403, { error: "Local control only" });
+			if (url.pathname === "/api/local/status" && req.method === "GET") return json(200, { service: "connect-pi", pid: process.pid, port: PORT, url: phoneUrl, roots: cfg.roots });
+			if (url.pathname === "/api/local/stop" && req.method === "POST") {
+				json(200, { stopping: true });
+				setTimeout(() => shutdown("phone command"), 100);
+				return;
+			}
+			return json(404, { error: "Unknown control command" });
+		}
+		// ---------------- open endpoints
 		if (url.pathname === "/api/auth/state") return json(200, authState(cfg, req));
 
 		if (url.pathname === "/api/auth/passcode" && req.method === "POST") {

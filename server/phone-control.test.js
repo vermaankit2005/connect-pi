@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import net from "node:net";
@@ -37,6 +37,9 @@ test("phone setup, settings and controlled bridge lifecycle", async (t) => {
 		assert.equal(config.loadConfig(), null);
 	});
 	await t.test("wizard saves chosen folder and a hashed passcode without displaying it", async () => {
+		const extensions = join(sandbox, "agent", "extensions");
+		await mkdir(extensions, { recursive: true });
+		await writeFile(join(extensions, "connect-pi.ts"), '// connect-pi — lets your phone drive this pi session.\npi.registerCommand("phone", {});\n');
 		const ctx = uiContext([folder, "123456", "123456"], [false]);
 		await control.handlePhoneCommand("setup", ctx);
 		const cfg = config.loadConfig();
@@ -46,6 +49,7 @@ test("phone setup, settings and controlled bridge lifecycle", async (t) => {
 		assert(!JSON.stringify(cfg).includes("123456"));
 		assert(!ctx.messages.join().includes("123456"));
 		assert((await readFile(join(sandbox, "agent", "extensions", "connect-pi.ts"), "utf8")).includes("export { default }"));
+		assert((await readdir(extensions)).some((name) => name.endsWith(".disabled")), "Legacy extension must be backed up, not deleted");
 	});
 	await t.test("folder validation rejects files and relative paths", async () => {
 		await assert.rejects(control.validateFolder("relative"), /full path/);
