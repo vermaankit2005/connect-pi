@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node scripts/phone.mjs foreground",
-    "test": "node --test server/*.test.js web/*.test.js",
+    "test": "node scripts/test.mjs",
     "preview:ui": "node scripts/ui-preview.mjs",
     "smoke": "node scripts/smoke-test.mjs",
     "setup": "node scripts/setup.mjs",

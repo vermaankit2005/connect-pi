@@ -21,6 +21,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm install --global @earendil-works/pi-coding-agent@1.5.2
+      - name: Locate the pinned Pi CLI
+        shell: pwsh
+        run: |
+          $piCli = Join-Path (npm root --global) '@earendil-works/pi-coding-agent/dist/bundle/cli.js'
+          if (!(Test-Path -LiteralPath $piCli)) { throw "The pinned Pi CLI is missing: $piCli" }
+          "PI_CLI=$piCli" >> $env:GITHUB_ENV
       - run: npm test
       - run: npm run smoke
       - run: npm run smoke:package
