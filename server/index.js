@@ -27,12 +27,13 @@ import {
 import { CONFIG_PATH, ensureConfig, hasPasscode, loadConfig, setPasscode, verifyToken } from "./config.js";
 import { createFolder, listFolders, listRoots, resolveInsideRoots } from "./files.js";
 import { findSession, listSessions, readTranscript } from "./history.js";
-import { guardServer } from "./net-guard.js";
+import { guardServer, isLoopback } from "./net-guard.js";
 import { SessionLauncher, openInWarp } from "./sessions.js";
 import { serveOff, serveOn } from "./tailscale.js";
 
 const WEB_ROOT = resolve(fileURLToPath(new URL("../web", import.meta.url)));
 const BUFFER_LIMIT = 800;
+let phoneUrl = null;
 
 const cfg = ensureConfig();
 const PORT = Number(process.env.CONNECT_PI_PORT || cfg.port || 4317);
@@ -182,7 +183,18 @@ const server = http.createServer(async (req, res) => {
 	const ip = req.socket.remoteAddress || "?";
 
 	try {
-		// ---------------- open endpoints
+		// Local control uses the separate agent secret, never a phone login.
+        if (url.pathname.startsWith("/api/local/")) {
+            if (!isLoopback(ip) || req.headers["x-connect-pi-token"] !== cfg.agentToken) return json(403, { error: "Local control only" });
+            if (url.pathname === "/api/local/status" && req.method === "GET") return json(200, { service: "connect-pi", pid: process.pid, port: PORT, url: phoneUrl, roots: cfg.roots });
+            if (url.pathname === "/api/local/stop" && req.method === "POST") {
+                json(200, { stopping: true });
+                setTimeout(() => shutdown("phone command"), 100);
+                return;
+            }
+            return json(404, { error: "Unknown control command" });
+        }
+        // ---------------- open endpoints
 		if (url.pathname === "/api/auth/state") return json(200, authState(cfg, req));
 
 		if (url.pathname === "/api/auth/passcode" && req.method === "POST") {
@@ -540,7 +552,8 @@ process.on("exit", () => {
 server.listen(PORT, "0.0.0.0", () => {
 	const pi = launcher.pi;
 	// open the tailnet door only once we are actually listening behind it
-	const url = serveOn(PORT);
+	const url = process.env.CONNECT_PI_TAILSCALE === "off" ? null : serveOn(PORT);
+	phoneUrl = url;
 
 	console.log("");
 	console.log("   ================================================================");

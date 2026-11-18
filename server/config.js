@@ -6,9 +6,9 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
-export const CONFIG_PATH = join(homedir(), ".connect-pi.json");
+export const CONFIG_PATH = process.env.CONNECT_PI_CONFIG ? resolve(process.env.CONNECT_PI_CONFIG) : join(homedir(), ".connect-pi.json");
 
 const DEFAULT_PORT = 4317;
 const DEFAULT_LOCK_MINUTES = 60;

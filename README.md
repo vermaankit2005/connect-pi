@@ -1,270 +1,290 @@
 <p align="center"><img src="web/icons/icon-192.png" alt="connect-pi" width="88" /></p>
 
-<h1 align="center">Your pi. Now in your pocket.</h1>
+<h1 align="center">Your pi. Your projects. In your pocket.</h1>
 
-<p align="center"><strong>Give your coding assistant a task from your phone.<br />Watch it work on your PC. Continue the conversation wherever you are.</strong></p>
+<p align="center"><strong>Ask from your sofa. Follow along over coffee.<br />Your coding assistant keeps working on your PC.</strong></p>
 
-<p align="center">Project-based chats · Live replies · Your own pi account · A familiar mobile interface</p>
+<p align="center">Install as a Pi package · Guided setup · Project-based chats · Live replies · Your own AI account</p>
 
-## 💜 Leave the desk. Keep the conversation.
+## 💜 Your next idea doesn't have to wait for your desk
 
-An idea hits while you're on the sofa. A task is still running while you make coffee. You want to ask one more question without opening your laptop again.
+Give pi a task from your phone. Watch its reply arrive. Check what it changed, send another thought, or return to a project you started yesterday.
 
-**connect-pi gives the pi on your PC a comfortable phone interface.** Your computer does the work. Your phone lets you follow along.
+**connect-pi turns your existing pi installation into a phone-friendly workspace.**
 
-- **Talk to your own pi.** Use the saved account setup on your computer.
-- **Keep projects together.** Find conversations by project folder.
-- **See progress live.** Read replies and expand commands or thinking steps.
-- **Change direction.** Send a follow-up while pi works, or press Stop.
-- **Carry on later.** Reopen a saved conversation from your phone.
-
-> An independent companion for pi, with a ChatGPT-inspired interface. This is not a ChatGPT product.
-
-## 👀 Take a look
+- **One place for your projects.** Conversations stay grouped by their folder on your PC.
+- **Follow the work live.** Read replies and expand thinking, commands and file edits.
+- **Stay in control.** Send a follow-up while pi is working, or tap Stop.
+- **Pick up where you left off.** Continue saved chats or start fresh in the same folder.
+- **Keep your own setup.** Use pi's saved AI account and your own computer.
+- **Set up inside pi.** Choose a project folder and passcode through a guided wizard.
 
 <p align="center">
-<img src="docs/images/chat.jpeg" alt="A conversation in the phone app" width="260" />
-<img src="docs/images/projects.jpeg" alt="The sidebar opens with your projects" width="260" />
+<img src="docs/images/chat.jpeg" alt="Chat with pi from your phone" width="260" />
+<img src="docs/images/projects.jpeg" alt="Find conversations by project" width="260" />
 </p>
 
-*Screenshots supplied for this guide. Your projects and messages will be your own.*
+*Screenshots supplied for this guide. Your conversations and folders will be your own.*
+
+> Independent companion for pi. The interface is ChatGPT-inspired; this is not a ChatGPT product.
 
 ## 🧭 How it works
 
 ```mermaid
 flowchart LR
-    Phone["📱 Your phone"] <-->|"Private connection through Tailscale"| PC["💻 Your PC"]
+    Phone["📱 You send a message"] <-->|"Private Tailscale connection"| PC["💻 Your PC stays on"]
     PC <--> Pi["🤖 Your pi works in your project"]
 ```
 
-**You send a message → pi works on your PC → the reply appears on your phone.**
+**Your phone sends the message. Your PC does the work. The answer appears on your phone.**
 
-Tailscale privately connects your phone and PC, even on different networks. Your PC must stay switched on, connected and awake.
+Your PC must stay switched on, awake and connected. Your AI provider's usual charges and limits still apply.
 
-## ✅ Can I use this with my own pi?
+## ✅ Before you begin
 
-**Yes, with a compatible setup. You do not need the author's computer or AI account.**
-
-| You need | Why |
+| You need | What to do |
 | --- | --- |
-| A Windows PC | The desktop launcher and this guide are built for Windows. |
-| pi working on that PC | connect-pi controls pi; it does not provide an AI account. |
-| Node.js LTS, version 22.19 or newer | Runs pi and connect-pi. Includes the `npm` command used below. |
-| Android or iPhone with a current browser | Opens the phone interface. Android is the main UI reference; iPhone behavior can differ. |
-| Tailscale on the PC and phone | Connects your devices privately. |
-| Access to this repository | It is currently private. Other people need an invitation to download it. |
+| A Windows PC | This is the supported desktop setup. macOS/Linux are not verified as complete desktop experiences. |
+| pi already working | Open `pi`, use `/login` if needed, and check that it answers a message. |
+| Node.js 22.19 or newer | Install [Node.js LTS](https://nodejs.org/en/download). Check with `node --version`. |
+| A current phone browser | Chrome on Android or Safari on iPhone. Android is the main UI reference; iPhone behavior can differ. |
+| Tailscale on both devices | [Install Tailscale](https://tailscale.com/download), sign into the same account, and keep it connected. |
+| Repository access | This repository is private. Other people need an invitation and must sign into the invited GitHub account. |
+| Git, for the recommended install | Install [Git for Windows](https://git-scm.com/downloads/win). Git must be able to access this private repository. |
 
-This guide uses an **npm-installed pi**. Custom or standalone pi installations may need extra configuration. macOS and Linux are not covered by this Windows guide or verified as complete desktop experiences.
+For a fresh pi installation, follow [pi's official guide](https://github.com/earendil-works/pi/tree/main/packages/coding-agent). The Windows instructions here use an npm-installed pi; custom/standalone pi installations may need extra configuration.
 
-## 🚀 Set it up once
+**Phone connection, once per device:** enable HTTPS through [Tailscale's setup guide](https://tailscale.com/docs/how-to/set-up-https-certificates). If Tailscale shows an approval link for Serve, open it and approve the private connection. The wizard cannot sign into your accounts for you.
 
-Do steps 1–6 on your **PC**. Switch to your **phone** at step 7. Copy and run commands one at a time.
+## 🚀 Choose your setup: easiest first
 
-### 1. Make sure pi works
+| Method | Best for |
+| --- | --- |
+| **1. Install as a Pi package** | Recommended. No ZIP or manual settings-file edits. |
+| **2. Ask pi to help** | Have your assistant check prerequisites and prepare the installation. |
+| **3. Download, then install locally** | Prefer a ZIP or already have a checkout on your PC. |
+| **4. Manual setup** | Prefer terminal commands and a desktop shortcut. |
 
-Install [Node.js LTS](https://nodejs.org/en/download) if needed, then open a new PowerShell window. Check its version:
+All four methods connect to **your own pi on your own PC**.
+
+<a id="install-pi-package"></a>
+
+## 1. 📦 Install as a Pi package — recommended
+
+### On your PC
+
+Open a terminal and run:
 
 ```powershell
-node --version
+pi install git:github.com/vermaankit2005/connect-pi
 ```
 
-You should see **22.19 or newer**. If pi already works, skip its installation below. Otherwise, use the npm installation from [pi's official guide](https://github.com/earendil-works/pi/tree/main/packages/coding-agent):
+If GitHub refuses access, check that your Git credentials can access the repository. Alternatively use the ZIP method below. There is no published npm package to install by name; this command installs from GitHub using [Pi's package support](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md).
+
+Open pi in a project folder. If it was already open, type `/reload`.
+
+Then, **inside pi**, enter:
+
+```text
+/phone setup
+```
+
+The wizard will:
+
+1. Ask which existing folder your phone should browse. Enter its full path, or press Enter to use the current project folder.
+2. Ask you to choose and repeat a **6-digit passcode**, unless one is already set. Enter it directly in the dialog; don't ask the AI to choose it.
+3. Offer to start the phone connection now.
+4. Show your phone address once Tailscale is ready.
+
+**Already used an older manual installation?** Use `/connect-pi setup` if `/phone` is ambiguous or shows the old status command. Setup backs up the recognized legacy copied extension; run `/reload` afterwards. `/connect-pi` and `/phone` otherwise offer the same commands.
+
+### On your phone
+
+1. Connect Tailscale.
+2. Open the **`https://…ts.net`** address shown by pi in your browser.
+3. Unlock with the passcode you chose.
+4. Open the top-left menu. Projects is the starting view.
+
+**That's your connection ready.** Continue with [your first task](#-your-first-task).
+
+> `/phone start` runs the connection in the background. Closing pi does **not** stop it. Use `/phone stop` when you're done. This also stops phone-started sessions; saved conversations remain.
+
+## 2. 💬 Ask pi to help you set it up
+
+Paste this into a pi session on the PC you want to use:
+
+> Set up connect-pi from https://github.com/vermaankit2005/connect-pi on this computer. Read its README, check Node, Git, repository access and my existing pi installation, and install it as a Pi package. Reuse my existing pi login. Tell me when to run /reload and /phone setup. Guide me through Tailscale sign-in and HTTPS approval when needed. I will enter my own passcode in the setup dialog. Do not upload conversations, screenshots, credentials or local configuration files.
+
+pi can prepare and troubleshoot the installation. You still complete account sign-ins and the setup dialogs yourself. Once installed, use the same phone steps as method 1.
+
+## 3. 📂 Download, then install locally
+
+### Option A: download a ZIP
+
+1. Open [this repository](https://github.com/vermaankit2005/connect-pi) while signed into an invited GitHub account.
+2. Choose **Code → Download ZIP**.
+3. Right-click the ZIP, select **Extract All**, and open the extracted folder containing `package.json`.
+4. Move it somewhere permanent. Don't delete this folder after setup.
+5. Right-click an empty area inside it and choose **Open in Terminal**.
+
+### Option B: clone with Git
 
 ```powershell
-npm.cmd install -g --ignore-scripts @earendil-works/pi-coding-agent
+git clone https://github.com/vermaankit2005/connect-pi.git
 ```
-
-Start pi:
 
 ```powershell
-pi
+cd connect-pi
 ```
 
-Inside pi, type `/login` and follow its sign-in steps if you have not connected your AI provider. Send **“Say hello.”** Continue once pi replies. Your provider's normal charges and usage limits still apply.
+### Install the local copy
 
-### 2. Connect your devices with Tailscale
-
-1. [Download Tailscale](https://tailscale.com/download) on the PC and phone.
-2. Sign in on both with the **same Tailscale account**.
-3. Keep Tailscale connected on both devices.
-4. Follow [Tailscale's HTTPS setup guide](https://tailscale.com/docs/how-to/set-up-https-certificates) to enable HTTPS.
-
-HTTPS gives you the address needed for phone installation and fingerprint unlock. If Tailscale asks you to approve serving a private web page, follow its approval link. See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) for help.
-
-### 3. Download connect-pi
-
-1. Open [this repository](https://github.com/vermaankit2005/connect-pi) while signed into GitHub.
-2. Click **Code → Download ZIP**.
-3. Right-click the ZIP and choose **Extract All**.
-4. Open the extracted folder containing `package.json`.
-5. Right-click an empty area in that folder and choose **Open in Terminal**.
-
-Keep this folder somewhere permanent. The desktop shortcut will use it later.
-
-### 4. Run the setup
-
-In that terminal, run:
+Run these one at a time from the app folder:
 
 ```powershell
 npm.cmd install
 ```
 
-Wait until it finishes, then run:
+```powershell
+pi install .
+```
+
+Local Pi packages use the folder in place, which is why it must stay where you put it. Open pi, or type `/reload` in an existing session. Run `/phone setup`, then follow the phone steps from method 1.
+
+## 4. 🛠️ Manual setup — terminal and desktop shortcut
+
+Download or clone the app as in method 3. Open a terminal in its folder and run:
+
+```powershell
+npm.cmd install
+```
 
 ```powershell
 npm.cmd run setup
 ```
 
-Choose a **6-digit passcode** when asked. You will use it to unlock the phone app. Setup also adds the connection extension to pi and creates the app icons.
+Setup asks for a **6-digit passcode** if one isn't set, then the **project folder your phone should browse**. Enter an existing full path on any drive. It creates the icons and installs the pi connection extension. Restart pi or use `/reload` afterwards.
 
-If pi was already open, restart it or type `/reload` inside pi. Continue when setup finishes without an error.
-
-### 5. Choose where your projects live
-
-The phone's folder browser initially looks on **D:**. If your projects are there, skip this step. If you use **C:** or another location, change it now:
-
-1. Press **Windows + R**.
-2. Enter `%USERPROFILE%\.connect-pi.json` and open it with Notepad.
-3. Find the setting named `roots`.
-4. Replace its folder list with the folder you want to browse. Keep everything else unchanged.
-
-For example, if your actual folder is `C:\Users\Jamie\Projects`, that part should look like:
-
-```json
-"roots": ["C:\\Users\\Jamie\\Projects"],
-```
-
-Use **your actual Windows username and an existing folder**. Keep the doubled backslashes shown above. Save and close Notepad. Do not share this file: it also contains private sign-in information.
-
-### 6. Add your desktop button and start
-
-Back in the connect-pi terminal, run:
+Create your desktop shortcut:
 
 ```powershell
 npm.cmd run desktop
 ```
 
-A shortcut named **pi on my phone** appears on your desktop. Double-click it. A window opens and shows the address to use on your phone.
+Double-click **pi on my phone** on your desktop. Keep its window open, and open the printed HTTPS address on your phone. **Closing this desktop window stops the connection and sessions it started.**
 
-Look for an address beginning with **`https://`** and ending in **`.ts.net`**. Keep this window open while using connect-pi.
+Prefer the terminal? Run `npm.cmd start` instead of using the shortcut and stop it with Ctrl+C.
 
-Prefer a terminal? Run `npm.cmd start` from the app folder instead. If no HTTPS address appears, see troubleshooting below.
+Prefer background control? After setup, use:
 
-### 7. Open it on your phone
+```powershell
+npm.cmd run phone -- start
+```
 
-1. Make sure **Tailscale is connected** on the phone.
-2. Open Chrome on Android, or Safari on iPhone.
-3. Enter the **exact address printed by the PC**, without adding a different port.
-4. Enter your 6-digit passcode.
+```powershell
+npm.cmd run phone -- stop
+```
 
-**You should now see the chat screen.** Open the top-left menu to see Projects. An empty list is normal before your first conversation.
-
-### 8. Put it on your home screen
-
-- **Android:** In Chrome's three-dot menu, choose **Install app** or **Add to Home screen**, whichever appears.
-- **iPhone:** Tap **Share → Add to Home Screen** and follow your iOS version's options.
-
-Open that icon next time. You still need Tailscale connected and the PC window running. Installation and fingerprint options depend on your browser and a working HTTPS address.
+Background mode stays running until stopped, even after the terminal or pi session closes. Don't launch another desktop window while it is running; use `/phone stop` first.
 
 ## 💬 Your first task
 
 1. On the phone, open the top-left menu.
-2. Tap **New project** to browse your PC's folders.
-3. Choose an existing project folder, or tap **New folder** to create one.
-4. Tap **Start pi here** and wait for it to start.
+2. Tap **New project** to browse the folder you allowed during setup.
+3. Choose an existing folder, or tap **New folder** to create one.
+4. Tap **Start pi here** and wait for pi to start.
 5. Type **“Explain what this project does.”**
 6. Tap the purple **Send** arrow and watch the reply arrive.
 
-**A project is a folder on your PC.** This does not move files or upload them to GitHub. The empty purple waveform starts browser dictation where supported; typing changes it to Send. This is dictation, not ChatGPT voice chat.
+A project is a folder on your PC. Your files are not moved or uploaded to GitHub. The empty purple waveform starts browser dictation where supported; typing changes it to Send. This is dictation, not ChatGPT voice chat.
 
-## 📁 Continue a conversation
+**Continue later:** open Projects → choose a project → choose a saved conversation → **Continue this session**. Use **Start fresh in this folder** for a new conversation. Longer histories can cost more to continue. Library shows conversations across projects; the magnifying glass searches titles and folders.
 
-1. Open the menu. **Projects is the starting view after opening the app.**
-2. Tap a project to see its conversations.
-3. Tap a running conversation to switch to it.
-4. Tap a saved conversation, then **Continue this session** to reopen it.
-5. Choose **Start fresh in this folder** for a new conversation instead.
+## 🎛️ Your phone-control commands
 
-Long conversations can cost more to continue because pi remembers earlier messages. **Library** shows chats across projects. The magnifying glass searches titles and folders. The menu and project list scroll together.
+Run these **inside pi on the PC**. `/connect-pi` is an alias for `/phone`. Enter `/phone` by itself to open the command menu.
 
-## ☀️ Everyday use
-
-Open the three dots at the top-right of a chat for session options: change its thinking level, give it a name, open its folder on your PC, or close a phone-started session. Desktop handoff uses Warp.
-
-<p align="center"><img src="docs/images/session-options.jpeg" alt="Session options menu" width="260" /></p>
-
-| I want to… | Do this |
+| Command | What it does |
 | --- | --- |
-| Start using it today | Open **pi on my phone** on the PC, connect Tailscale on the phone, then open the app. |
-| Start another chat | Open a project and tap **New chat in project**. |
-| Change direction while pi works | Send another message while it is working. |
-| Stop the task | With an empty message box, tap the **Stop** square. Cancellation can take a moment. |
-| Read a command or thinking step | Tap its collapsed row in the conversation. |
-| Add a text or code file | Tap **+ → Files**. Review the contents added to your draft before sending. |
-| See open sessions | Open **Running now** in the sidebar. |
-| Change theme, text size or bubble color | Tap the round account button at the bottom of the sidebar to open Settings. |
-| Use fingerprint unlock | Enable it in Settings if available on your phone's HTTPS address. |
-| Turn it off | Close the PC's connect-pi window. Sessions it started stop; saved history stays. |
+| `/phone setup` | Guides you through folder selection, passcode and starting the connection. |
+| `/phone start` | Starts the background connection, or shows the existing one if already running. |
+| `/phone stop` | Stops the connection and its phone-started sessions. Keeps saved history. |
+| `/phone restart` | Stops and starts the connection again. |
+| `/phone status` | Shows whether it is running and the current connection details. |
+| `/phone url` | Shows the phone address, or explains what is missing. |
+| `/phone doctor` | Checks pi detection, settings, Tailscale and bridge status; shows the log location. |
+| `/phone folders` | Changes the folder your phone may browse. |
+| `/phone passcode` | Changes the passcode. Phones must sign in again. |
+| `/phone desktop` | Creates the **pi on my phone** Windows desktop shortcut. |
+| `/phone help` | Lists commands and terminal alternatives. |
 
-The phone is a remote control: pi still works with your PC account's permissions. Keep your passcode and Tailscale account private. Your AI provider still receives whatever pi normally sends it; connect-pi does not make AI requests stay entirely on your computer.
+Changing folders or the passcode while connected asks before restarting, because this stops phone-started sessions. Cancelling leaves the existing settings unchanged. Setup keeps home-WiFi access off; Tailscale is the recommended phone connection.
 
-## 🛟 Something not working?
+Terminal users can also run `npm.cmd run phone -- status`, `url`, `doctor`, `restart`, `start` or `stop` from the app folder. The setup, folder and passcode dialogs need an interactive pi session; manual terminal setup remains available through `npm.cmd run setup` and `npm.cmd run passcode`.
 
-| What you see | Try this |
-| --- | --- |
-| GitHub says “404” | Sign into an invited account or ask the owner for repository access. |
-| “npm is not recognized” | Install Node.js, then reopen the terminal. |
-| PowerShell says scripts are disabled | Use **`npm.cmd`** as shown above instead of `npm`. You do not need to change Windows security settings. |
-| “pi is not recognized” | Complete step 1, then reopen the terminal. If PowerShell blocks `pi.ps1`, try `pi.cmd`. |
-| The PC says “pi found: NO” | Check step 1. Custom installations need the technical guide. |
-| The phone cannot open the page | Check that the PC is awake, its window is open, and Tailscale is connected on both devices. Recheck the address. |
-| No HTTPS address appears | Complete Tailscale's HTTPS/Serve approval, then restart connect-pi. An `http://100…` address supports a passcode, but installation and fingerprint unlock need HTTPS. |
-| No folders appear | Check step 5. The default D: drive may not exist. Restart connect-pi after changing folders. |
-| Projects is empty | Start a chat in a folder. Projects appear once a session/history exists. |
-| A session does not appear | Run `npm.cmd run install-extension` in the app folder, then restart pi or use `/reload`. |
-| Forgot the passcode | Run `npm.cmd run passcode` in the app folder on the PC. Phones must sign in again. |
-| pi is waiting for permission | Check the desktop pi window. The phone cannot answer every prompt from other pi extensions. |
+## ☀️ Make it part of your day
 
-## 🙋 A few honest answers
+- **Put it on your home screen:** Android Chrome → three dots → Install app or Add to Home screen. On iPhone, Safari → Share → Add to Home Screen. Options depend on the browser and HTTPS address.
+- **Start your day:** connect Tailscale on both devices, use `/phone start` on the PC, and open the phone app.
+- **Change direction:** send another message while pi is working. With an empty draft, tap the Stop square to request cancellation.
+- **Read the detail:** tap a collapsed command or thinking row to expand it.
+- **Add context:** **+ → Files** adds a text/code file to your editable draft before sending.
+- **Make it yours:** the round account button at the bottom of the sidebar opens Settings for theme, text size, bubble color and supported fingerprint unlock.
+- **Finish up:** use `/phone stop`, or close the desktop launcher window if you used that method.
 
-**Does pi run on my phone?**
+<p align="center"><img src="docs/images/session-options.jpeg" alt="Chat options for thinking level, naming, desktop handoff and closing a session" width="260" /></p>
 
-No. It runs on your PC, which must stay on, awake and connected.
+The chat's three-dot menu lets you name a session, change thinking level and close a phone-started session. **Open on my PC** uses Warp on Windows.
 
-**Can someone else use their own pi?**
+## 🔄 Update or remove
 
-Yes, with the compatible Windows/npm setup above, their own pi login, repository access and their own Tailscale account. They set it up on their own PC. Not every pi version, custom extension or operating system has been verified.
-
-**Do I need another AI subscription?**
-
-connect-pi uses pi's saved account setup. Your provider's billing and limits still apply. Tailscale has its own plans and eligibility; check its website for your situation.
-
-**Can I use an API key?**
-
-Use pi's supported saved provider setup. Phone-launched sessions currently clear the `OPENAI_API_KEY` environment variable, so relying only on that variable needs adjustment. See the technical guide for custom configurations.
-
-**Can anyone download it today?**
-
-The repository is private. The owner must give other users access first.
-
-**How do I update?**
-
-For ZIP downloads, download a fresh copy and replace the app files in the same permanent folder. Keep the old copy until you have checked the update. Your login settings live separately in your Windows user folder, and pi keeps its own conversations.
-
-Open a terminal in the app folder and run these commands one at a time:
+**Installed from GitHub as a Pi package?** Stop the connection first, then run in a terminal:
 
 ```powershell
-npm.cmd install
+pi update --extensions
 ```
+
+This reconciles installed Pi packages, including connect-pi. Restart pi or use `/reload`, then `/phone start`. Refresh the phone app.
+
+**Installed from a local folder?** Stop the connection, update that folder with `git pull` or a fresh ZIP, run `npm.cmd install`, then restart pi or use `/reload`. Keep the folder at the same location. For the manual forwarding-extension method, also run `npm.cmd run install-extension`.
+
+**Remove the GitHub Pi package:** run `/phone stop`, then in a terminal:
 
 ```powershell
-npm.cmd run install-extension
+pi remove git:github.com/vermaankit2005/connect-pi
 ```
 
-Restart connect-pi and restart pi (or use `/reload`), then refresh the phone app.
+For a local Pi package, use `pi remove` with the same folder path you installed. Restart pi or use `/reload`. Delete any desktop shortcut you no longer want. Package removal does not erase pi's conversations or your separate connect-pi settings.
+
+## 🛟 Quick fixes
+
+| What happened? | What to try |
+| --- | --- |
+| GitHub says 404 or Git cannot clone | The repository is private. Use an invited account and configure Git authentication, or use the ZIP method. |
+| `/phone` isn't available | Open a new pi session or use `/reload` after `pi install`. Run `pi list` to check the installation. |
+| `/phone` is ambiguous after an older install | Use `/connect-pi setup` and then `/reload` to retire the recognized legacy copy. |
+| PowerShell blocks `npm.ps1` or `pi.ps1` | Use `npm.cmd` or `pi.cmd`. No security-policy changes are needed. |
+| No HTTPS phone address | Connect Tailscale on both devices, complete HTTPS/Serve approval, then `/phone restart`. See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve). |
+| The phone can't reach the PC | Check Tailscale, the exact address, and that the PC is awake. Run `/phone doctor`. |
+| “Older bridge or another service” on the port | Close the old connect-pi desktop window before `/phone start`. The command deliberately does not kill an unknown process. |
+| Wrong folders | Use `/phone folders`. No settings-file editing or D: drive is required by the wizard. |
+| Projects is empty | Start a session in a folder. Projects appear when a session or saved history exists. |
+| Forgot the passcode | Use `/phone passcode`, or `npm.cmd run passcode` from a manual installation. |
+| The app looks unchanged after updating | Refresh it after restarting the connection. |
+| pi is waiting for permission | Check the PC. The phone cannot answer every dialog from other pi extensions. |
+
+## 🙋 Is it for me?
+
+**Can someone else use their own pi?** Yes, with the compatible Windows/npm setup, their own saved pi login, their own Tailscale account and repository access. They use their own PC. Not every pi version, custom extension or operating system has been verified.
+
+**Is there a new AI subscription?** connect-pi uses pi's saved account setup. Your provider's billing and limits still apply; Tailscale has its own plans and eligibility. Phone-started sessions currently clear `OPENAI_API_KEY`, so setups relying only on that environment variable need a saved provider configuration instead.
+
+**Is my PC doing the work?** Yes. Your phone is a remote control. pi has your PC account's permissions, and your AI provider receives whatever pi normally sends it. The private device connection does not make AI requests entirely local. Keep your passcode, Tailscale account and settings file private.
+
+**Is this on npm or in a public plugin store?** No. This release is a Pi package installable from GitHub or a local folder. The repository remains private; sharing requires an invitation. npm publication and gallery listing are separate steps.
 
 ---
 
-**Ready? Start with [step 1](#1-make-sure-pi-works). Your next conversation can start from your phone.**
+**Ready? [Install the Pi package](#install-pi-package). Your next conversation can start from your phone.**
 
-For custom installations, home-WiFi access and developer details, read the [technical guide](docs/technical-guide.md).
+For developers and custom installations: [technical guide](docs/technical-guide.md).

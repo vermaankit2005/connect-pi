@@ -5,7 +5,9 @@ import { networkInterfaces } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CONFIG_PATH, ensureConfig, hasPasscode, setPasscode } from "../server/config.js";
+import { validateFolder } from "../server/phone-control.js";
+import { existsSync } from "node:fs";
+import { CONFIG_PATH, ensureConfig, hasPasscode, setPasscode, saveConfig } from "../server/config.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const run = (file) => execFileSync(process.execPath, [join(here, file)], { stdio: "inherit" });
@@ -27,6 +29,16 @@ if (!hasPasscode(cfg)) {
 } else {
 	console.log("  Passcode already set (run `npm run passcode` to change it).\n");
 }
+
+const folders = createInterface({ input: process.stdin, output: process.stdout });
+const defaultFolder = cfg.roots?.find((path) => existsSync(path)) || process.cwd();
+while (true) {
+    const answer = await folders.question(`  Project folder your phone should browse [${defaultFolder}]: `);
+    try { cfg.roots = [await validateFolder(answer.trim() || defaultFolder)]; break; }
+    catch (error) { console.log(`  ${error.message}`); }
+}
+folders.close();
+saveConfig(cfg);
 
 run("make-icons.mjs");
 run("install-extension.mjs");

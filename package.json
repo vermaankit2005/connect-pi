@@ -1,6 +1,6 @@
 {
   "name": "connect-pi",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Control your desktop pi coding agent from your phone.",
   "type": "module",
@@ -18,13 +18,47 @@
     "desktop": "powershell -ExecutionPolicy Bypass -File scripts/install-desktop-shortcuts.ps1",
     "desktop:remove": "powershell -ExecutionPolicy Bypass -File scripts/install-desktop-shortcuts.ps1 -Remove",
     "autostart": "powershell -ExecutionPolicy Bypass -File scripts/install-autostart.ps1",
-    "autostart:remove": "powershell -ExecutionPolicy Bypass -File scripts/install-autostart.ps1 -Remove"
+    "autostart:remove": "powershell -ExecutionPolicy Bypass -File scripts/install-autostart.ps1 -Remove",
+    "phone": "node scripts/phone.mjs",
+    "smoke:package": "node scripts/package-smoke.mjs"
   },
   "dependencies": {
     "@simplewebauthn/server": "^13.3.3",
     "ws": "^8.18.0"
   },
   "engines": {
-    "node": ">=20"
-  }
+    "node": ">=22.19.0"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "mobile",
+    "remote-control"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vermaankit2005/connect-pi.git"
+  },
+  "pi": {
+    "extensions": [
+      "./extension/connect-pi.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "files": [
+    "extension/",
+    "server/",
+    "scripts/",
+    "web/",
+    "docs/",
+    "README.md",
+    "CHANGELOG.md"
+  ]
 }

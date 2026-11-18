@@ -11,9 +11,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { handlePhoneCommand, PHONE_COMMANDS } from "../server/phone-control.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-const CONFIG_PATH = join(homedir(), ".connect-pi.json");
+const CONFIG_PATH = process.env.CONNECT_PI_CONFIG || join(homedir(), ".connect-pi.json");
 const STOP_TEXT =
 	"STOP. Abandon the current task immediately. Do not run any more tools. Briefly say what you had done so far, then wait for my next instruction.";
 const STATUS_KEY = "connect-pi";
@@ -74,7 +75,7 @@ function textOf(content: any, limit = MAX_TEXT): string {
 }
 
 export default function connectPi(pi: ExtensionAPI) {
-	const cfg = readBridgeConfig();
+	let cfg = readBridgeConfig();
 
 	let ws: WebSocket | null = null;
 	let connected = false;
@@ -142,7 +143,8 @@ export default function connectPi(pi: ExtensionAPI) {
 	// ---------------------------------------------------------- connection
 
 	function connect() {
-		if (shuttingDown || !cfg) return;
+		cfg = readBridgeConfig();
+		if (shuttingDown || !cfg || ws) return;
 		let socket: WebSocket;
 		try {
 			socket = new WebSocket(`ws://127.0.0.1:${cfg.port || 4317}/agent?token=${cfg.agentToken}`);
@@ -410,22 +412,17 @@ export default function connectPi(pi: ExtensionAPI) {
 
 	// ---------------------------------------------------------- command
 
-	pi.registerCommand("phone", {
-		description: "Show connect-pi status (control this session from your phone)",
-		handler: async (_args: string, ctx: any) => {
-			if (!cfg) {
-				ctx.ui?.notify(`No bridge config at ${CONFIG_PATH}. Start the connect-pi server once to create it.`, "warn");
-				return;
-			}
-			ctx.ui?.notify(
-				[
-					connected ? "Bridge: connected" : "Bridge: NOT connected — is `npm start` running?",
-					`Phones watching: ${watchers}`,
-					`Port: ${cfg.port || 4317}`,
-					`Session id: ${agentId}`,
-				].join("\n"),
-				connected ? "success" : "warn",
-			);
-		},
-	});
+	const command = {
+        description: "Set up and control connect-pi: setup, start, stop, restart, status, url, doctor, folders, passcode, desktop, help",
+        getArgumentCompletions: (prefix: string) => PHONE_COMMANDS.filter((name: string) => name.startsWith(prefix)).map((name: string) => ({ value: name, label: name })),
+        handler: async (args: string, ctx: any) => {
+            try {
+                await handlePhoneCommand(args, ctx);
+                cfg = readBridgeConfig();
+                if (cfg && !ws && !shuttingDown) connect();
+            } catch (error: any) { ctx.ui?.notify(error.message || String(error), "error"); }
+        },
+    };
+    pi.registerCommand("connect-pi", command);
+    pi.registerCommand("phone", command);
 }

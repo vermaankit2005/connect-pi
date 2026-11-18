@@ -5,10 +5,11 @@
 // PI_CODING_AGENT_DIR if set, otherwise ~/.pi/agent. Some installs (the
 // pi-harness launcher) point it at ~/.pi-harness/agent, so we check both.
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { writeFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { isPackageRegistered } from "../server/phone-control.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = join(here, "..", "extension", "connect-pi.ts");
@@ -19,6 +20,7 @@ if (!existsSync(src)) {
 }
 
 export function agentDirs() {
+	if (process.env.PI_CODING_AGENT_DIR) return [process.env.PI_CODING_AGENT_DIR];
 	const candidates = [process.env.PI_CODING_AGENT_DIR, join(homedir(), ".pi-harness", "agent"), join(homedir(), ".pi", "agent")];
 	const seen = new Set();
 	const found = [];
@@ -31,15 +33,20 @@ export function agentDirs() {
 	return found.length ? found : [join(homedir(), ".pi", "agent")];
 }
 
-const body = readFileSync(src, "utf8");
+// A forwarding file preserves relative imports used by the Pi package.
+const body = `// connect-pi launcher — keep the app folder in this location.\nexport { default } from ${JSON.stringify(pathToFileURL(src).href)};\n`;
 for (const agentDir of agentDirs()) {
+	if (isPackageRegistered(agentDir)) {
+		console.log("  Pi package already registered; no forwarding extension needed.");
+		continue;
+	}
 	const dir = join(agentDir, "extensions");
 	const dest = join(dir, "connect-pi.ts");
 	mkdirSync(dir, { recursive: true });
 	if (existsSync(dest) && readFileSync(dest, "utf8") === body) {
 		console.log("  up to date   " + dest);
 	} else {
-		copyFileSync(src, dest);
+		writeFileSync(dest, body, "utf8");
 		console.log("  installed    " + dest);
 	}
 }

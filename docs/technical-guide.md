@@ -1,5 +1,34 @@
 # connect-pi
 
+> For the current product guide and easiest installation, see the [README](../README.md).
+> Version 1.1 adds a Pi package manifest and `/phone` commands. This document retains
+> the lower-level manual-deployment reference; the README is authoritative for
+> package setup, command behavior and supported installation paths.
+
+## Pi package controls
+
+Install with `pi install git:github.com/vermaankit2005/connect-pi`, then `/reload`
+and `/phone setup`. The package declares `extension/connect-pi.ts` in its `pi`
+manifest. Pi supplies the extension host; runtime dependencies stay in this package.
+The repo is private and is not published to npm.
+
+`/phone` and `/connect-pi` accept `setup`, `start`, `stop`, `restart`, `status`,
+`url`, `doctor`, `folders`, `passcode`, `desktop`, and `help`.
+The wizard chooses an existing folder, so it does not require a D: drive.
+Passcode entry happens through Pi UI dialogs rather than model-generated text.
+
+Background control uses an authenticated localhost-only endpoint. It does not
+kill arbitrary processes by port or PID. `/phone stop` also stops sessions the
+bridge launched. Desktop-window and foreground-terminal modes retain their
+existing lifecycle; background mode requires an explicit stop command.
+
+For isolated tests, `CONNECT_PI_CONFIG` selects a separate settings file and
+`CONNECT_PI_TAILSCALE=off` disables Tailscale Serve changes. These are intended for
+tests, not the recommended phone setup. `npm run smoke:package` installs into an
+isolated Pi profile and exercises commands through real RPC without a model call.
+`CONNECT_PI_PACKAGE_SOURCE` can choose another install source; `manual` tests the
+legacy terminal installer and forwarding extension.
+
 Control the **pi** coding agent on your Windows PC from your phone.
 
 You type on your phone. It lands in a pi session on your PC — exactly as if you
