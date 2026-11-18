@@ -138,7 +138,7 @@ export function isPackageRegistered(agentDir) {
 		const settings = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
 		return (settings.packages || []).some((entry) => {
 			const source = typeof entry === "string" ? entry : entry.source;
-			return source === PACKAGE_ROOT || source === pathToFileURL(PACKAGE_ROOT).href || /github\.com[/:]vermaankit2005\/connect-pi(?:\.git)?(?:@[^\s]+)?\/?$/.test(source || "");
+			return (typeof source === "string" && isAbsolute(source) && resolve(source) === PACKAGE_ROOT) || source === pathToFileURL(PACKAGE_ROOT).href || /github\.com[/:]vermaankit2005\/connect-pi(?:\.git)?(?:@[^\s]+)?\/?$/.test(source || "");
 		});
 	} catch { return false; }
 }

@@ -2,7 +2,7 @@
 // personal credentials, real project history, or Tailscale changes are involved.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import net from "node:net";
@@ -24,6 +24,13 @@ const pending = new Map();
 const notices = [];
 let answers = [project, "123456", "123456"];
 let modelRuns = 0;
+if (process.env.GITHUB_ACTIONS === "true") {
+	process.on("uncaughtExceptionMonitor", (error) => {
+		const detail = [error.stack, stderr.slice(-2000), ...notices.filter((item) => item.notifyType === "error").map((item) => item.message)].filter(Boolean).join("\n");
+		console.log(`::error title=Pi package smoke failure::${detail.slice(0, 8000).replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A")}`);
+	});
+}
+
 try {
 	const manual = source === "manual";
 	const installed = spawnSync(process.execPath, manual ? [resolve("scripts/install-extension.mjs")] : [pi.cli, "install", source], { env, cwd: project, encoding: "utf8", timeout: 120000, windowsHide: true });
@@ -61,7 +68,7 @@ try {
 	assert(commands.some((c) => c.name === "connect-pi"));
 	await rpc("prompt", { message: "/phone setup" });
 	let cfg = JSON.parse(await readFile(configFile, "utf8"));
-	assert.deepEqual(cfg.roots, [project]);
+	assert.deepEqual(cfg.roots, [await realpath(project)]);
 	assert(cfg.passcode.hash && !JSON.stringify(cfg).includes("123456"));
 	assert(!notices.some((n) => n.notifyType === "error"), JSON.stringify(notices));
 	Object.assign(cfg, { port, controlPort: localPort });
